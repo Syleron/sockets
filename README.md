@@ -1,5 +1,5 @@
 # sockets
-sockets package wrapped around gorilla sockets w/ some influence by socket.io
+sockets package wrapped around gorilla websocket w/ some influence by socket.io
 
 ### Installation
 
