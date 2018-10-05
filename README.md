@@ -19,7 +19,7 @@ Project is still actively being worked on in other personal projects.
 
     import skt (
         "github.com/gin-gonic/gin"
-        "gitlab.com/syleron/socketRTMP/sockets"
+        "gitlab.com/syleron/sockets"
     )
 
     func main() {
