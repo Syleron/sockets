@@ -1,4 +1,4 @@
-# sockets
+# Sockets
 Sockets package wrapped around gorilla websocket w/ some influence by socket.io
 
 Project is still actively being worked on in other personal projects.
