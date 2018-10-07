@@ -42,7 +42,7 @@ STATUS: Not ready for use. Still making some minor changes.
         router.Run(":5000")
     }
 
-    func testing(msg skt.Message) {
+    func testing(msg sockets.Message) {
     }
 
 ### Licence
