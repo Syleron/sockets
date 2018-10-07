@@ -3,6 +3,7 @@ package sockets
 import (
 	"github.com/gorilla/websocket"
 	"net/http"
+	"log"
 )
 
 type Sockets interface {
@@ -26,6 +27,12 @@ type sockets struct {
 	clients       map[string]*Client
 	rooms         map[string]*Room
 	broadcastChan chan Message
+}
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
 func NewSocket(jwtKey string) *sockets {
@@ -61,6 +68,60 @@ func (s *sockets) HandleMessages() {
 }
 
 func (s *sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	query := r.URL.Query()
+	jwtString := query.Get("jwt")
+	// Check to see if the JWT is undefined
+	var jwt JWT
+	if JWTKey != "" {
+		if jwtString == "undefined" || jwtString == ""  {
+			ws.Close()
+			return
+		}
+		var success bool
+		success, jwt = decodeJWT(jwtString)
+		// Unable to decode JWT
+		if !success {
+			ws.Close()
+			return
+		}
+	}
+	// Make sure we close the connection when the function returns
+	defer ws.Close()
+	// TODO: double check to see if we have a client before create a new instance of one.
+	if s.CheckIfClientExists(jwt.Username) {
+		client := s.clients[jwt.Username]
+		client.Connections = append(client.Connections, ws)
+		// amend the client object with our connection
+	} else {
+		//Define new client object
+		newClient := Client{}
+		newClient.Connections = append(newClient.Connections, ws)
+		newClient.Username = jwt.Username
+		newClient.Connected = true
+		// Register our new client
+		s.addClient(&newClient)
+
+	}
+	// Handle messages for this socket connection
+	for {
+		var msg Message
+		// Read in a new message as JSON and map it to a Message object
+		err := ws.ReadJSON(&msg)
+		// catch errors
+		if err != nil {
+			// remove the connection from our list
+			s.closeWS(s.clients[jwt.Username], ws)
+			break
+		}
+		// Set the username for the connection
+		msg.Username = jwt.Username
+		// Send the newly received message to the broadcast channel
+		s.broadcastChan <- msg // This needs to be revised.
+	}
 
 }
 
