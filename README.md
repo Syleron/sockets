@@ -19,13 +19,13 @@ STATUS: Not ready for use. Still making some minor changes.
 
     package main
 
-    import skt (
+    import (
         "github.com/gin-gonic/gin"
-        "gitlab.com/syleron/sockets"
+        "github.com/Syleron/sockets"
     )
 
     func main() {
-        sockets := skt.NewSocket("")
+        sockets := sockets.NewSocket("")
 
         // Register our events
         sockets.HandleEvent("ping", testing)
