@@ -3,7 +3,7 @@ Sockets package wrapped around gorilla websocket w/ some influence by socket.io
 
 Project is still actively being worked on in other personal projects.
 
-STATUS: Not ready for use. Still making some minor changes.
+STATUS: Not ready for use. Still making some minor changes. I need to add the connection context to the eventHandler functions.
 
 ### Features
 
