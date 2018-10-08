@@ -28,7 +28,7 @@ Project is still actively being worked on in other personal projects.
         // Register our events
         sockets.HandleEvent("ping", testing)
 
-        // setup router
+        // Setup router
         router := gin.Default()
 
         // Setup websockets
@@ -40,7 +40,8 @@ Project is still actively being worked on in other personal projects.
         router.Run(":5000")
     }
 
-    func testing(msg sockets.Message) {
+    func testing(msg *sockets.Message, ctx *sockets.Context) {
+        ctx.emit('pong')
     }
 
 ### Licence
