@@ -26,7 +26,17 @@ type Sockets interface {
 type sockets struct {
 	clients       map[string]*Client
 	rooms         map[string]*Room
-	broadcastChan chan Message
+	broadcastChan chan Broadcast
+}
+
+type Context struct {
+	*Client
+	Conn *websocket.Conn
+}
+
+type Broadcast struct {
+	message *Message
+	context *Context
 }
 
 var upgrader = websocket.Upgrader{
@@ -40,7 +50,7 @@ func NewSocket(jwtKey string) *sockets {
 	sockets := &sockets{}
 	sockets.clients = make(map[string]*Client)
 	sockets.rooms = make(map[string]*Room)
-	sockets.broadcastChan = make(chan Message)
+	sockets.broadcastChan = make(chan Broadcast)
 	// Set the JWT token key
 	JWTKey = jwtKey
 	// Setup go routine to handle messages
@@ -62,8 +72,8 @@ func (s *sockets) HandleEvent(pattern string, handler EventFunc) {
 
 func (s *sockets) HandleMessages() {
 	for {
-		msg := <-s.broadcastChan
-		EventHandler(msg)
+		brd := <-s.broadcastChan
+		EventHandler(brd.message, brd.context)
 	}
 }
 
@@ -89,15 +99,16 @@ func (s *sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var client *Client
 	if s.CheckIfClientExists(jwt.Username) {
-		client := s.clients[jwt.Username]
+		client = s.clients[jwt.Username]
 		client.Connections = append(client.Connections, ws)
 	} else {
-		newClient := Client{}
-		newClient.Connections = append(newClient.Connections, ws)
-		newClient.Username = jwt.Username
-		newClient.Connected = true
-		s.addClient(&newClient)
+		client = &Client{}
+		client.Connections = append(client.Connections, ws)
+		client.Username = jwt.Username
+		client.connected = true
+		s.addClient(client)
 	}
 	for {
 		var msg Message
@@ -107,7 +118,14 @@ func (s *sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		msg.Username = jwt.Username
-		s.broadcastChan <- msg
+		brd := Broadcast{
+			message: &msg,
+			context: &Context{
+				Client: client,
+				Conn: ws,
+			},
+		}
+		s.broadcastChan <- brd
 	}
 
 }

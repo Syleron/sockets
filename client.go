@@ -4,7 +4,7 @@ import "github.com/gorilla/websocket"
 
 type Client struct {
 	Username string `json:"username"`
-	Connected bool
+	connected bool
 	Connections []*websocket.Conn
 }
 
