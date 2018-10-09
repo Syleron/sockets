@@ -85,19 +85,15 @@ func (s *sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	jwtString := query.Get("jwt")
 	// Check to see if the JWT is undefined
-	var jwt JWT
-	if JWTKey != "" {
-		if jwtString == "undefined" || jwtString == ""  {
-			ws.Close()
-			return
-		}
-		var success bool
-		success, jwt = decodeJWT(jwtString)
-		// Unable to decode JWT
-		if !success {
-			ws.Close()
-			return
-		}
+	if jwtString == "undefined" || jwtString == ""  {
+		ws.Close()
+		return
+	}
+	success, jwt := decodeJWT(jwtString)
+	// Unable to decode JWT
+	if !success {
+		ws.Close()
+		return
 	}
 	var client *Client
 	if s.CheckIfClientExists(jwt.Username) {
