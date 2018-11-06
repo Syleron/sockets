@@ -6,7 +6,7 @@ import (
 	"log"
 )
 
-type Sockets interface {
+type sockets interface {
 	// Close websocket connection
 	Close()
 	// Function used to define a WS event listener
@@ -23,7 +23,7 @@ type Sockets interface {
 	RemoveClientByUsername(username string)
 }
 
-type sockets struct {
+type Sockets struct {
 	clients       map[string]*Client
 	rooms         map[string]*Room
 	broadcastChan chan Broadcast
@@ -45,9 +45,9 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func NewSocket(jwtKey string) *sockets {
+func NewSocket(jwtKey string) *Sockets {
 	// Setup the sockets object
-	sockets := &sockets{}
+	sockets := &Sockets{}
 	sockets.clients = make(map[string]*Client)
 	sockets.rooms = make(map[string]*Room)
 	sockets.broadcastChan = make(chan Broadcast)
@@ -59,25 +59,25 @@ func NewSocket(jwtKey string) *sockets {
 	return sockets
 }
 
-func (s *sockets) Close() {
+func (s *Sockets) Close() {
 	s.Close()
 }
 
-func (s *sockets) HandleEvent(pattern string, handler EventFunc) {
+func (s *Sockets) HandleEvent(pattern string, handler EventFunc) {
 	if events == nil {
 		events = make(map[string]EventFunc)
 	}
 	events[pattern] = handler
 }
 
-func (s *sockets) HandleMessages() {
+func (s *Sockets) HandleMessages() {
 	for {
 		brd := <-s.broadcastChan
 		EventHandler(brd.message, brd.context)
 	}
 }
 
-func (s *sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
+func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Fatal(err)
@@ -126,7 +126,7 @@ func (s *sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (s *sockets) BroadcastToRoom(roomName, event string, data interface{}) {
+func (s *Sockets) BroadcastToRoom(roomName, event string, data interface{}) {
 	for user, room := range s.rooms {
 		if room.Name == roomName {
 			var response Response
@@ -143,7 +143,7 @@ func (s *sockets) BroadcastToRoom(roomName, event string, data interface{}) {
 	}
 }
 
-func (s *sockets) BroadcastToRoomChannel(roomName, channelName, event string, data interface{}) {
+func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, data interface{}) {
 	for user, room := range s.rooms {
 		if room.Name == roomName && room.Channel == channelName {
 			var response Response
@@ -160,7 +160,7 @@ func (s *sockets) BroadcastToRoomChannel(roomName, channelName, event string, da
 	}
 }
 
-func (s *sockets) CheckIfClientExists(username string) bool {
+func (s *Sockets) CheckIfClientExists(username string) bool {
 	// PLEASE
 	if s.clients[username] != nil {
 		return true
@@ -168,7 +168,7 @@ func (s *sockets) CheckIfClientExists(username string) bool {
 	return false
 }
 
-func (s *sockets) RemoveClientByConnection(conn *websocket.Conn) {
+func (s *Sockets) RemoveClientByConnection(conn *websocket.Conn) {
 	for username, client := range s.clients {
 		for _, c := range client.Connections {
 			if conn == c {
@@ -178,12 +178,12 @@ func (s *sockets) RemoveClientByConnection(conn *websocket.Conn) {
 	}
 }
 
-func (s *sockets) RemoveClientByUsername(username string) {
+func (s *Sockets) RemoveClientByUsername(username string) {
 	s.leaveAllRooms(username)
 	delete(s.clients, username)
 }
 
-func (s *sockets) closeWS(client *Client, connection *websocket.Conn) {
+func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 	// Remove our connection from the user connection list.
 	client.RemoveConnection(connection)
 	// Determine whether we need to remove the user from the online list
@@ -195,22 +195,22 @@ func (s *sockets) closeWS(client *Client, connection *websocket.Conn) {
 	connection.Close()
 }
 
-func (s *sockets) addClient(client *Client) {
+func (s *Sockets) addClient(client *Client) {
 	s.clients[client.Username] = client
 }
 
-func (s *sockets) getUserRoom(username string) (string) {
+func (s *Sockets) getUserRoom(username string) (string) {
 	if s.rooms[username] == nil {
 		return ""
 	}
 	return s.rooms[username].Name
 }
 
-func (s *sockets) leaveAllRooms(username string) {
+func (s *Sockets) leaveAllRooms(username string) {
 	delete(s.rooms, username)
 }
 
-func (s *sockets) userInARoom(username string) (bool) {
+func (s *Sockets) userInARoom(username string) (bool) {
 	if s.rooms[username] == nil {
 		return false
 	}
