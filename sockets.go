@@ -74,7 +74,7 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func NewSocket(jwtKey string) *Sockets {
+func New(jwtKey string) *Sockets {
 	// Setup the sockets object
 	sockets := &Sockets{}
 	sockets.clients = make(map[string]*Client)
