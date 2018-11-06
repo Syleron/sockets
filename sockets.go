@@ -21,6 +21,12 @@ type sockets interface {
 	CheckIfClientExists(username string) bool
 	// Remove a client by username
 	RemoveClientByUsername(username string)
+	// Get the room a username is in
+	GetUserRoom(username string) string
+	// Removes a username from all rooms
+	LeaveAllRooms(username string)
+	// Checks to see if a username is in a room
+	UserInARoom(username string) bool
 }
 
 type Sockets struct {
@@ -183,6 +189,27 @@ func (s *Sockets) RemoveClientByUsername(username string) {
 	delete(s.clients, username)
 }
 
+func (s *Sockets) GetUserRoom(username string) (string) {
+	if s.rooms[username] == nil {
+		return ""
+	}
+	return s.rooms[username].Name
+}
+
+func (s *Sockets) LeaveAllRooms(username string) {
+	delete(s.rooms, username)
+}
+
+func (s *Sockets) UserInARoom(username string) (bool) {
+	if s.rooms[username] == nil {
+		return false
+	}
+	if s.rooms[username].Name == "" {
+		return false
+	}
+	return true
+}
+
 func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 	// Remove our connection from the user connection list.
 	client.RemoveConnection(connection)
@@ -199,23 +226,3 @@ func (s *Sockets) addClient(client *Client) {
 	s.clients[client.Username] = client
 }
 
-func (s *Sockets) getUserRoom(username string) (string) {
-	if s.rooms[username] == nil {
-		return ""
-	}
-	return s.rooms[username].Name
-}
-
-func (s *Sockets) leaveAllRooms(username string) {
-	delete(s.rooms, username)
-}
-
-func (s *Sockets) userInARoom(username string) (bool) {
-	if s.rooms[username] == nil {
-		return false
-	}
-	if s.rooms[username].Name == "" {
-		return false
-	}
-	return true
-}
