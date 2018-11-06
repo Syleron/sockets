@@ -1,4 +1,10 @@
-# Sockets
+```
+   ____         __       __    
+  / __/__  ____/ /_____ / /____
+ _\ \/ _ \/ __/  '_/ -_) __(_-<
+/___/\___/\__/_/\_\\__/\__/___/               
+
+```
 Sockets package wrapped around gorilla websocket w/ some influence by socket.io
 
 Project is still actively being worked on in other personal projects.
