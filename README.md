@@ -32,7 +32,7 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
     )
 
     func main() {
-        sockets := sockets.NewSocket("")
+        sockets := sockets.New("")
 
         // Register our events
         sockets.HandleEvent("ping", testing)
