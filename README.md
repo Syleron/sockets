@@ -5,6 +5,10 @@
 /___/\___/\__/_/\_\\__/\__/___/               
 
 ```
+[![Build Status](https://travis-ci.org/Syleron/sockets.svg?branch=master)](https://travis-ci.org/Syleron/sockets)
+<a href="https://godoc.org/github.com/Syleron/sockets"><img src="https://godoc.org/github.com/Syleron/sockets?status.svg"><a/>
+<a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/github/license/mashape/apistatus.svg"><a/>
+
 Sockets package wrapped around gorilla websocket w/ some influence by socket.io
 
 Project is still actively being worked on in other personal projects.
