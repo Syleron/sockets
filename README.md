@@ -9,14 +9,13 @@
 <a href="https://godoc.org/github.com/Syleron/sockets"><img src="https://godoc.org/github.com/Syleron/sockets?status.svg"><a/>
 <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/github/license/mashape/apistatus.svg"><a/>
 
-Sockets package wrapped around gorilla websocket w/ some influence by socket.io
-
-Project is still actively being worked on in other personal projects.
+Sockets is a websocket framework based on gorilla/websocket providing a simple way to write real-time apps.
 
 ### Features
 
 * JWT authentication.
 * Room & Room Channel support.
+* Easily broadcast to Rooms/Channels.
 * Multi-connection under the same auth username.
 
 ### Installation
