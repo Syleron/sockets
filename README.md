@@ -1,12 +1,21 @@
-# Sockets
-Sockets package wrapped around gorilla websocket w/ some influence by socket.io
+```
+   ____         __       __    
+  / __/__  ____/ /_____ / /____
+ _\ \/ _ \/ __/  '_/ -_) __(_-<
+/___/\___/\__/_/\_\\__/\__/___/               
 
-Project is still actively being worked on in other personal projects.
+```
+[![Build Status](https://travis-ci.org/Syleron/sockets.svg?branch=master)](https://travis-ci.org/Syleron/sockets)
+<a href="https://godoc.org/github.com/Syleron/sockets"><img src="https://godoc.org/github.com/Syleron/sockets?status.svg"><a/>
+<a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/github/license/mashape/apistatus.svg"><a/>
+
+Sockets is a websocket framework based on gorilla/websocket providing a simple way to write real-time apps.
 
 ### Features
 
 * JWT authentication.
 * Room & Room Channel support.
+* Easily broadcast to Rooms/Channels.
 * Multi-connection under the same auth username.
 
 ### Installation
@@ -23,7 +32,7 @@ Project is still actively being worked on in other personal projects.
     )
 
     func main() {
-        sockets := sockets.NewSocket("")
+        sockets := sockets.New("")
 
         // Register our events
         sockets.HandleEvent("ping", testing)
