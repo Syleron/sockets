@@ -27,7 +27,7 @@ import (
 	"github.com/gorilla/websocket"
 	"net/http"
 	"log"
-)
+	)
 
 type sockets interface {
 	// Close websocket connection
@@ -37,9 +37,9 @@ type sockets interface {
 	// Handle incoming WS connections via a router
 	HandleConnections(w http.ResponseWriter, r *http.Request)
 	// Function used to broadcast an event to members defined in a room
-	BroadcastToRoom(roomName, event string, data interface{})
+	BroadcastToRoom(roomName, event string, data, options interface{})
 	// Function used to broadcast an event to members defined in a room's channel
-	BroadcastToRoomChannel(roomName, channelName, event string, data interface{})
+	BroadcastToRoomChannel(roomName, channelName, event string, data, options interface{})
 	// Check to see if a client exists for a username
 	CheckIfClientExists(username string) bool
 	// Remove a client by username
@@ -136,6 +136,7 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		client.Connections = append(client.Connections, ws)
 	} else {
 		client = &Client{}
+		go client.PingHandler()
 		client.Connections = append(client.Connections, ws)
 		client.Username = jwt.Username
 		client.connected = true
@@ -161,7 +162,7 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func (s *Sockets) BroadcastToRoom(roomName, event string, data interface{}) {
+func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interface{}) {
 	for user, room := range s.rooms {
 		if room.Name == roomName {
 			var response Response
@@ -178,7 +179,7 @@ func (s *Sockets) BroadcastToRoom(roomName, event string, data interface{}) {
 	}
 }
 
-func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, data interface{}) {
+func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, data, options interface{}) {
 	for user, room := range s.rooms {
 		if room.Name == roomName && room.Channel == channelName {
 			var response Response
@@ -193,6 +194,10 @@ func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, da
 			}
 		}
 	}
+}
+
+func (s *Sockets) BroadcastToAllRoomChannels() {
+
 }
 
 func (s *Sockets) CheckIfClientExists(username string) bool {

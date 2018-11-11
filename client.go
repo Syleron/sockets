@@ -23,7 +23,10 @@ SOFTWARE.
 */
 package sockets
 
-import "github.com/gorilla/websocket"
+import (
+	"github.com/gorilla/websocket"
+	"time"
+)
 
 type Client struct {
 	Username string `json:"username"`
@@ -45,6 +48,18 @@ func (c *Client) RemoveConnection(conn *websocket.Conn) {
 			c.Connections[i] = c.Connections[len(c.Connections)-1]
 			c.Connections[len(c.Connections)-1] = &websocket.Conn{}
 			c.Connections = c.Connections[:len(c.Connections)-1]
+		}
+	}
+}
+
+func (c *Client) PingHandler() {
+	ticker := time.NewTicker((60 * time.Second * 9) / 10)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			c.Emit("ping")
 		}
 	}
 }
