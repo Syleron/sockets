@@ -32,7 +32,9 @@ func decodeJWT(tokenString string) (bool, JWT) {
 	token, err := jwt.ParseWithClaims(tokenString, &jwtt, func(token *jwt.Token) (interface{}, error) {
 		return []byte(JWTKey), nil
 	})
-	check(err)
+	if err != nil {
+		return false, JWT{}
+	}
 	if token.Valid {
 		claims, ok := token.Claims.(*JWT)
 		if !ok {

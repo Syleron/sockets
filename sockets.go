@@ -23,6 +23,12 @@ type sockets interface {
 	RemoveClientByUsername(username string)
 	// Get the room a username is in
 	GetUserRoom(username string) string
+	// Get the room channel a username is in
+	GetUserRoomChannel(username string) string
+	// Join a room
+	JoinRoom(username, room string)
+	// Join a room channel
+	JoinRoomChannel(username, channel string)
 	// Removes a username from all rooms
 	LeaveAllRooms(username string)
 	// Checks to see if a username is in a room
@@ -185,7 +191,7 @@ func (s *Sockets) RemoveClientByConnection(conn *websocket.Conn) {
 }
 
 func (s *Sockets) RemoveClientByUsername(username string) {
-	s.leaveAllRooms(username)
+	s.LeaveAllRooms(username)
 	delete(s.clients, username)
 }
 
@@ -198,6 +204,26 @@ func (s *Sockets) GetUserRoom(username string) (string) {
 
 func (s *Sockets) LeaveAllRooms(username string) {
 	delete(s.rooms, username)
+}
+
+func (s *Sockets) GetUserRoomChannel(username string) (string) {
+	if s.rooms[username] == nil {
+		return ""
+	}
+	return s.rooms[username].Channel
+}
+
+func (s *Sockets) JoinRoom(username, room string) {
+	s.rooms[username] = &Room{
+		Name: room,
+	}
+}
+
+func (s *Sockets) JoinRoomChannel(username, channel string) {
+	if s.rooms[username] == nil {
+		return
+	}
+	s.rooms[username].Channel = channel
 }
 
 func (s *Sockets) UserInARoom(username string) (bool) {
