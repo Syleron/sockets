@@ -26,8 +26,7 @@ package sockets
 import (
 	"github.com/gorilla/websocket"
 	"net/http"
-	"log"
-	)
+		)
 
 type sockets interface {
 	// Close websocket connection
@@ -115,7 +114,7 @@ func (s *Sockets) HandleMessages() {
 func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
 	query := r.URL.Query()
 	jwtString := query.Get("jwt")
