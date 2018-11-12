@@ -53,7 +53,7 @@ func (c *Client) RemoveConnection(conn *websocket.Conn) {
 }
 
 func (c *Client) PingHandler() {
-	ticker := time.NewTicker((60 * time.Second * 9) / 10)
+	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
 	for {

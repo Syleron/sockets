@@ -195,10 +195,6 @@ func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, da
 	}
 }
 
-func (s *Sockets) BroadcastToAllRoomChannels() {
-
-}
-
 func (s *Sockets) CheckIfClientExists(username string) bool {
 	// PLEASE
 	if s.clients[username] != nil {
