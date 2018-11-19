@@ -58,10 +58,16 @@ type sockets interface {
 	UserInARoom(username string) bool
 }
 
+type DataHandler interface {
+	// Client disconnect handler
+	ConnectionClosed(ctx *Context)
+}
+
 type Sockets struct {
 	clients       map[string]*Client
 	rooms         map[string]*Room
 	broadcastChan chan Broadcast
+	handler       DataHandler
 }
 
 type Context struct {
@@ -80,12 +86,13 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func New(jwtKey string) *Sockets {
+func New(jwtKey string, handler DataHandler) *Sockets {
 	// Setup the sockets object
 	sockets := &Sockets{}
 	sockets.clients = make(map[string]*Client)
 	sockets.rooms = make(map[string]*Room)
 	sockets.broadcastChan = make(chan Broadcast)
+	sockets.handler = handler
 	// Set the JWT token key
 	JWTKey = jwtKey
 	// Setup go routine to handle messages
@@ -276,6 +283,11 @@ func (s *Sockets) UserInARoom(username string) (bool) {
 }
 
 func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
+	// Call the event listener with the approp. details
+	s.handler.ConnectionClosed(&Context{
+		client.getConnection(connection),
+		client,
+	})
 	// Remove our connection from the user connection list.
 	client.removeConnection(connection)
 	// Determine whether we need to remove the user from the online list
