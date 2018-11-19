@@ -30,9 +30,15 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
         "github.com/gin-gonic/gin"
         "github.com/Syleron/sockets"
     )
+    
+    type SocketHandler struct {}
+    
+    func (h *SocketHandler) ConnectionClosed(ctx *sockets.Context) {
+      // Handle closing socket connections here
+    }
 
     func main() {
-        sockets := sockets.New("")
+        sockets := sockets.New("SuperSecretKey", &SocketHandler{})
 
         // Register our events
         sockets.HandleEvent("ping", testing)
