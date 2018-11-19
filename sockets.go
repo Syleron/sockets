@@ -27,6 +27,8 @@ import (
 	"github.com/gorilla/websocket"
 	"net/http"
 	"github.com/rs/xid"
+		"sync"
+		"encoding/json"
 )
 
 type sockets interface {
@@ -42,8 +44,6 @@ type sockets interface {
 	BroadcastToRoomChannel(roomName, channelName, event string, data, options interface{})
 	// Check to see if a client exists for a username
 	CheckIfClientExists(username string) bool
-	// Remove a client by username
-	RemoveClientByUsername(username string)
 	// Get the room a username is in
 	GetUserRoom(username string) string
 	// Get the room channel a username is in
@@ -70,6 +70,7 @@ type Sockets struct {
 	rooms         map[string]*Room
 	broadcastChan chan Broadcast
 	handler       DataHandler
+	sync.Mutex
 }
 
 type Context struct {
@@ -80,6 +81,21 @@ type Context struct {
 type Broadcast struct {
 	message *Message
 	context *Context
+}
+
+type Room struct {
+	Name string
+	Channel string
+}
+
+type Response struct {
+	EventName string `json:"eventName"`
+	Data interface{} `json:"data"`
+}
+
+type Message struct {
+	EventName string          `json:"eventName"`
+	Data      json.RawMessage `json:"data"`
 }
 
 var upgrader = websocket.Upgrader{
@@ -143,23 +159,17 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	uuid := xid.New().String()
 	if s.CheckIfClientExists(jwt.Username) {
 		client = s.clients[jwt.Username]
-		client.connections = append(
-			client.connections,
-			&Connection{
-				Conn: ws,
-				UUID: uuid,
-			},
-		)
+		client.addConnection(&Connection{
+			Conn: ws,
+			UUID: uuid,
+		})
 	} else {
 		client = &Client{}
 		go client.pingHandler()
-		client.connections = append(
-			client.connections,
-			&Connection{
-				Conn: ws,
-				UUID: uuid,
-			},
-		)
+		client.addConnection(&Connection{
+			Conn: ws,
+			UUID: uuid,
+		})
 		client.Username = jwt.Username
 		client.connected = true
 		s.addClient(client)
@@ -196,10 +206,10 @@ func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interfac
 			response.Data = data
 			userClient := s.clients[user]
 			for _, conn := range userClient.connections {
-				err := conn.Conn.WriteJSON(response)
-				if err != nil {
-					s.closeWS(userClient, conn.Conn)
+				if conn.Conn == nil {
+					continue
 				}
+				conn.Conn.WriteJSON(response)
 			}
 		}
 	}
@@ -213,10 +223,10 @@ func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, da
 			response.Data = data
 			userClient := s.clients[user]
 			for _, conn := range userClient.connections {
-				err := conn.Conn.WriteJSON(response)
-				if err != nil {
-					s.closeWS(userClient, conn.Conn)
+				if conn.Conn == nil {
+					continue
 				}
+				conn.Conn.WriteJSON(response)
 			}
 		}
 	}
@@ -230,21 +240,6 @@ func (s *Sockets) CheckIfClientExists(username string) bool {
 	return false
 }
 
-func (s *Sockets) RemoveClientByConnection(conn *websocket.Conn) {
-	for username, client := range s.clients {
-		for _, c := range client.connections {
-			if conn == c.Conn {
-				s.RemoveClientByUsername(username)
-			}
-		}
-	}
-}
-
-func (s *Sockets) RemoveClientByUsername(username string) {
-	s.LeaveAllRooms(username)
-	delete(s.clients, username)
-}
-
 func (s *Sockets) GetUserRoom(username string) (string) {
 	if s.rooms[username] == nil {
 		return ""
@@ -253,7 +248,9 @@ func (s *Sockets) GetUserRoom(username string) (string) {
 }
 
 func (s *Sockets) LeaveAllRooms(username string) {
+	s.Lock()
 	delete(s.rooms, username)
+	s.Unlock()
 }
 
 func (s *Sockets) GetUserRoomChannel(username string) (string) {
@@ -264,16 +261,20 @@ func (s *Sockets) GetUserRoomChannel(username string) (string) {
 }
 
 func (s *Sockets) JoinRoom(username, room string) {
+	s.Lock()
 	s.rooms[username] = &Room{
 		Name: room,
 	}
+	s.Unlock()
 }
 
 func (s *Sockets) JoinRoomChannel(username, channel string) {
+	s.Lock()
 	if s.rooms[username] == nil {
 		return
 	}
 	s.rooms[username].Channel = channel
+	s.Unlock()
 }
 
 func (s *Sockets) UserInARoom(username string) (bool) {
@@ -287,6 +288,10 @@ func (s *Sockets) UserInARoom(username string) (bool) {
 }
 
 func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
+	// If we have no client details just close or we are going to have issues.
+	if client == nil {
+		connection.Close()
+	}
 	// Call the event listener with the approp. details
 	s.handler.ConnectionClosed(&Context{
 		Connection: client.getConnection(connection),
@@ -295,14 +300,25 @@ func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 	// Remove our connection from the user connection list.
 	client.removeConnection(connection)
 	// Determine whether we need to remove the user from the online list
-	if len(s.clients[client.Username].connections) <= 0 {
+	if len(client.connections) <= 0 {
+		// Remove our client from all the rooms
+		s.LeaveAllRooms(client.Username)
 		// Remove from local online list
-		s.RemoveClientByUsername(client.Username)
+		s.removeClient(client)
 	}
 	// Close the Connection
 	connection.Close()
 }
 
 func (s *Sockets) addClient(client *Client) {
+	s.Lock()
 	s.clients[client.Username] = client
+	s.Unlock()
 }
+
+func (s *Sockets) removeClient(client *Client) {
+	s.Lock()
+	delete(s.clients, client.Username)
+	s.Unlock()
+}
+

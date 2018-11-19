@@ -26,17 +26,38 @@ package sockets
 import (
 	"github.com/gorilla/websocket"
 	"time"
-)
+	"sync"
+	)
 
 type Client struct {
 	Username string `json:"username"`
 	connected bool
 	connections []*Connection
+	sync.Mutex
 }
 
 type Connection struct {
 	UUID string `json:"uuid"`
 	Conn *websocket.Conn
+}
+
+func (c *Client) addConnection(newConnection *Connection) {
+	c.Lock()
+	c.connections = append(
+		c.connections,
+		newConnection,
+	)
+	c.Unlock()
+}
+
+func (c *Client) removeConnection(conn *websocket.Conn) {
+	c.Lock()
+	for i, connection := range c.connections {
+		if connection.Conn == conn {
+			c.connections = append(c.connections[:i], c.connections[i+1:]...)
+		}
+	}
+	c.Unlock()
 }
 
 func(c *Client) Emit(data string) {
@@ -56,16 +77,9 @@ func (c *Client) getConnection(conn *websocket.Conn) *Connection {
 	return nil
 }
 
-func (c *Client) removeConnection(conn *websocket.Conn) {
-	for i, connection := range c.connections {
-		if connection.Conn == conn {
-			c.connections[i] = c.connections[len(c.connections)-1]
-			c.connections[len(c.connections)-1] = &Connection{}
-			c.connections = c.connections[:len(c.connections)-1]
-		}
-	}
-}
-
+/**
+TODO: Replace with gorillas internal ping/poing handler(s)
+ */
 func (c *Client) pingHandler() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
