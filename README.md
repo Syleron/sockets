@@ -33,8 +33,12 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
     
     type SocketHandler struct {}
     
+    func (h *SocketHandler) NewConnection(ctx *sockets.Context) {
+      // Do something when a new connection comes in
+    }
+    
     func (h *SocketHandler) ConnectionClosed(ctx *sockets.Context) {
-      // Handle closing socket connections here
+      // Do something when a connection is closed
     }
 
     func main() {
