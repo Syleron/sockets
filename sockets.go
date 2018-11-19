@@ -59,6 +59,8 @@ type sockets interface {
 }
 
 type DataHandler interface {
+	// Client connected handler
+	NewConnection(ctx *Context)
 	// Client disconnect handler
 	ConnectionClosed(ctx *Context)
 }
@@ -162,6 +164,14 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		client.connected = true
 		s.addClient(client)
 	}
+	context := &Context{
+		Connection: &Connection{
+			UUID: uuid,
+			Conn: ws,
+		},
+		Client: client,
+	}
+	s.handler.NewConnection(context)
 	for {
 		var msg Message
 		err := ws.ReadJSON(&msg)
@@ -171,13 +181,7 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		}
 		brd := Broadcast{
 			message: &msg,
-			context: &Context{
-				&Connection{
-					UUID: uuid,
-					Conn: ws,
-				},
-				client,
-			},
+			context: context,
 		}
 		s.broadcastChan <- brd
 	}
@@ -285,8 +289,8 @@ func (s *Sockets) UserInARoom(username string) (bool) {
 func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 	// Call the event listener with the approp. details
 	s.handler.ConnectionClosed(&Context{
-		client.getConnection(connection),
-		client,
+		Connection: client.getConnection(connection),
+		Client:     client,
 	})
 	// Remove our connection from the user connection list.
 	client.removeConnection(connection)
