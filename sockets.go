@@ -26,7 +26,8 @@ package sockets
 import (
 	"github.com/gorilla/websocket"
 	"net/http"
-		)
+	"github.com/rs/xid"
+)
 
 type sockets interface {
 	// Close websocket connection
@@ -64,8 +65,8 @@ type Sockets struct {
 }
 
 type Context struct {
+	*Connection
 	*Client
-	Conn *websocket.Conn
 }
 
 type Broadcast struct {
@@ -119,7 +120,7 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	jwtString := query.Get("jwt")
 	// Check to see if the JWT is undefined
-	if jwtString == "undefined" || jwtString == ""  {
+	if jwtString == "undefined" || jwtString == "" {
 		ws.Close()
 		return
 	}
@@ -130,13 +131,26 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var client *Client
+	uuid := xid.New().String()
 	if s.CheckIfClientExists(jwt.Username) {
 		client = s.clients[jwt.Username]
-		client.Connections = append(client.Connections, ws)
+		client.connections = append(
+			client.connections,
+			&Connection{
+				Conn: ws,
+				UUID: uuid,
+			},
+		)
 	} else {
 		client = &Client{}
-		go client.PingHandler()
-		client.Connections = append(client.Connections, ws)
+		go client.pingHandler()
+		client.connections = append(
+			client.connections,
+			&Connection{
+				Conn: ws,
+				UUID: uuid,
+			},
+		)
 		client.Username = jwt.Username
 		client.connected = true
 		s.addClient(client)
@@ -148,12 +162,14 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 			s.closeWS(s.clients[jwt.Username], ws)
 			break
 		}
-		msg.Username = jwt.Username
 		brd := Broadcast{
 			message: &msg,
 			context: &Context{
-				Client: client,
-				Conn: ws,
+				&Connection{
+					UUID: uuid,
+					Conn: ws,
+				},
+				client,
 			},
 		}
 		s.broadcastChan <- brd
@@ -168,10 +184,10 @@ func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interfac
 			response.EventName = event
 			response.Data = data
 			userClient := s.clients[user]
-			for _, conn := range userClient.Connections {
-				err := conn.WriteJSON(response)
+			for _, conn := range userClient.connections {
+				err := conn.Conn.WriteJSON(response)
 				if err != nil {
-					s.closeWS(userClient, conn)
+					s.closeWS(userClient, conn.Conn)
 				}
 			}
 		}
@@ -185,10 +201,10 @@ func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, da
 			response.EventName = event
 			response.Data = data
 			userClient := s.clients[user]
-			for _, conn := range userClient.Connections {
-				err := conn.WriteJSON(response)
+			for _, conn := range userClient.connections {
+				err := conn.Conn.WriteJSON(response)
 				if err != nil {
-					s.closeWS(userClient, conn)
+					s.closeWS(userClient, conn.Conn)
 				}
 			}
 		}
@@ -205,8 +221,8 @@ func (s *Sockets) CheckIfClientExists(username string) bool {
 
 func (s *Sockets) RemoveClientByConnection(conn *websocket.Conn) {
 	for username, client := range s.clients {
-		for _, c := range client.Connections {
-			if conn == c {
+		for _, c := range client.connections {
+			if conn == c.Conn {
 				s.RemoveClientByUsername(username)
 			}
 		}
@@ -261,9 +277,9 @@ func (s *Sockets) UserInARoom(username string) (bool) {
 
 func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 	// Remove our connection from the user connection list.
-	client.RemoveConnection(connection)
+	client.removeConnection(connection)
 	// Determine whether we need to remove the user from the online list
-	if len(s.clients[client.Username].Connections) <= 0 {
+	if len(s.clients[client.Username].connections) <= 0 {
 		// Remove from local online list
 		s.RemoveClientByUsername(client.Username)
 	}
@@ -274,4 +290,3 @@ func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 func (s *Sockets) addClient(client *Client) {
 	s.clients[client.Username] = client
 }
-

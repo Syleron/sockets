@@ -31,28 +31,42 @@ import (
 type Client struct {
 	Username string `json:"username"`
 	connected bool
-	Connections []*websocket.Conn
+	connections []*Connection
+}
+
+type Connection struct {
+	UUID string `json:"uuid"`
+	Conn *websocket.Conn
 }
 
 func(c *Client) Emit(data string) {
 	// We are sending this to a single user
 	// but on multiple connections.
-	for _, conn := range c.Connections {
-		conn.WriteJSON(data)
+	for _, connection := range c.connections {
+		connection.Conn.WriteJSON(data)
 	}
 }
 
-func (c *Client) RemoveConnection(conn *websocket.Conn) {
-	for i, connection := range c.Connections {
-		if connection == conn {
-			c.Connections[i] = c.Connections[len(c.Connections)-1]
-			c.Connections[len(c.Connections)-1] = &websocket.Conn{}
-			c.Connections = c.Connections[:len(c.Connections)-1]
+func (c *Client) getConnection(conn *websocket.Conn) *Connection {
+	for _, c := range c.connections {
+		if c.Conn == conn {
+			return c
+		}
+	}
+	return nil
+}
+
+func (c *Client) removeConnection(conn *websocket.Conn) {
+	for i, connection := range c.connections {
+		if connection.Conn == conn {
+			c.connections[i] = c.connections[len(c.connections)-1]
+			c.connections[len(c.connections)-1] = &Connection{}
+			c.connections = c.connections[:len(c.connections)-1]
 		}
 	}
 }
 
-func (c *Client) PingHandler() {
+func (c *Client) pingHandler() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 
