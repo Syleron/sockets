@@ -167,7 +167,7 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interface{}) {
 	for user, room := range s.rooms {
 		if room.Name == roomName {
-			var message common.Message
+			var message common.Response
 			message.EventName = event
 			message.Data = data
 			userClient := s.clients[user]
@@ -185,7 +185,7 @@ func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interfac
 func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, data, options interface{}) {
 	for user, room := range s.rooms {
 		if room.Name == roomName && room.Channel == channelName {
-			var message common.Message
+			var message common.Response
 			message.EventName = event
 			message.Data = data
 			userClient := s.clients[user]
