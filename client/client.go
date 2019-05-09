@@ -49,17 +49,19 @@ type Client struct {
 	sync.Mutex
 }
 
-func Dial(addr, jwt string, secure bool) *Client {
+func Dial(addr, jwt string, secure bool) (*Client, error) {
 	client := &Client{}
 	client.emitChan = make(chan *common.Message)
 	client.interrupt = make(chan os.Signal, 1)
 	client.done = make(chan struct{})
 	signal.Notify(client.interrupt, os.Interrupt)
-	client.New(addr, jwt, secure)
-	return client
+	if err := client.New(addr, jwt, secure); err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
-func (c *Client) New(addr, jwt string, secure bool) {
+func (c *Client) New(addr, jwt string, secure bool) error {
 	var err error
 	var sc string
 	if secure {
@@ -70,12 +72,10 @@ func (c *Client) New(addr, jwt string, secure bool) {
 	u := url.URL{Scheme: sc, Host: addr, Path: "/ws"}
 	c.conn, _, err = websocket.DefaultDialer.Dial(u.String() + "?jwt="+jwt, nil)
 	if err != nil {
-		log.Fatal("dial:", err)
+		return err
 	}
-
 	// Handle incoming requests
 	go c.handleIncoming()
-
 	// Handle messages
 	go c.handleMessages()
 }
