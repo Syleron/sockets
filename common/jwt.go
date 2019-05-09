@@ -72,6 +72,18 @@ func DecodeJWT(tokenString, tokenKey string) (bool, JWT) {
 	return false, JWT{}
 }
 
+func DecodeJWTNoVerify(tokenString string) (jwt.MapClaims, error) {
+	token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return nil, err
+	}
+	if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		return claims, nil
+	} else {
+		return nil, err
+	}
+}
+
 func GenerateJWT(username, secret string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"id": username,
