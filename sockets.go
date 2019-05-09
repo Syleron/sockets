@@ -1,7 +1,7 @@
 /**
 MIT License
 
-Copyright (c) 2018 Andrew Zak <andrew@linux.com>
+Copyright (c) 2018-2019 Andrew Zak <andrew@linux.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -24,39 +24,12 @@ SOFTWARE.
 package sockets
 
 import (
+	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
-	"net/http"
 	"github.com/rs/xid"
-		"sync"
-		"encoding/json"
+	"net/http"
+	"sync"
 )
-
-type sockets interface {
-	// Close websocket connection
-	Close()
-	// Function used to define a WS event listener
-	HandleEvent(pattern string, handler EventFunc)
-	// Handle incoming WS connections via a router
-	HandleConnections(w http.ResponseWriter, r *http.Request)
-	// Function used to broadcast an event to members defined in a room
-	BroadcastToRoom(roomName, event string, data, options interface{})
-	// Function used to broadcast an event to members defined in a room's channel
-	BroadcastToRoomChannel(roomName, channelName, event string, data, options interface{})
-	// Check to see if a client exists for a username
-	CheckIfClientExists(username string) bool
-	// Get the room a username is in
-	GetUserRoom(username string) string
-	// Get the room channel a username is in
-	GetUserRoomChannel(username string) string
-	// Join a room
-	JoinRoom(username, room string)
-	// Join a room channel
-	JoinRoomChannel(username, channel string)
-	// Removes a username from all rooms
-	LeaveAllRooms(username string)
-	// Checks to see if a username is in a room
-	UserInARoom(username string) bool
-}
 
 type DataHandler interface {
 	// Client connected handler
@@ -70,6 +43,7 @@ type Sockets struct {
 	rooms         map[string]*Room
 	broadcastChan chan Broadcast
 	handler       DataHandler
+	jwtKey        string
 	sync.Mutex
 }
 
@@ -79,23 +53,13 @@ type Context struct {
 }
 
 type Broadcast struct {
-	message *Message
+	message *common.Message
 	context *Context
 }
 
 type Room struct {
-	Name string
+	Name    string
 	Channel string
-}
-
-type Response struct {
-	EventName string `json:"eventName"`
-	Data interface{} `json:"data"`
-}
-
-type Message struct {
-	EventName string          `json:"eventName"`
-	Data      json.RawMessage `json:"data"`
 }
 
 var upgrader = websocket.Upgrader{
@@ -112,7 +76,7 @@ func New(jwtKey string, handler DataHandler) *Sockets {
 	sockets.broadcastChan = make(chan Broadcast)
 	sockets.handler = handler
 	// Set the JWT token key
-	JWTKey = jwtKey
+	sockets.jwtKey = jwtKey
 	// Setup go routine to handle messages
 	go sockets.HandleMessages()
 	// return our object
@@ -146,12 +110,14 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	jwtString := query.Get("jwt")
 	// Check to see if the JWT is undefined
 	if jwtString == "undefined" || jwtString == "" {
+		// TODO: Needs proper error reporting
 		ws.Close()
 		return
 	}
-	success, jwt := decodeJWT(jwtString)
+	success, jwt := common.DecodeJWT(jwtString, s.jwtKey)
 	// Unable to decode JWT
 	if !success {
+		// TODO: Needs proper error reporting
 		ws.Close()
 		return
 	}
@@ -183,7 +149,7 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 	}
 	s.handler.NewConnection(context)
 	for {
-		var msg Message
+		var msg common.Message
 		err := ws.ReadJSON(&msg)
 		if err != nil {
 			s.closeWS(s.clients[jwt.Username], ws)
@@ -201,15 +167,16 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interface{}) {
 	for user, room := range s.rooms {
 		if room.Name == roomName {
-			var response Response
-			response.EventName = event
-			response.Data = data
+			var message common.Message
+			message.EventName = event
+			message.Data = data
 			userClient := s.clients[user]
 			for _, conn := range userClient.connections {
 				if conn.Conn == nil {
 					continue
 				}
-				conn.Conn.WriteJSON(response)
+				// TODO: Needs proper error reporting
+				conn.Conn.WriteJSON(message)
 			}
 		}
 	}
@@ -218,15 +185,16 @@ func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interfac
 func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, data, options interface{}) {
 	for user, room := range s.rooms {
 		if room.Name == roomName && room.Channel == channelName {
-			var response Response
-			response.EventName = event
-			response.Data = data
+			var message common.Message
+			message.EventName = event
+			message.Data = data
 			userClient := s.clients[user]
 			for _, conn := range userClient.connections {
 				if conn.Conn == nil {
 					continue
 				}
-				conn.Conn.WriteJSON(response)
+				// TODO: Needs proper error reporting
+				conn.Conn.WriteJSON(message)
 			}
 		}
 	}
@@ -290,6 +258,7 @@ func (s *Sockets) UserInARoom(username string) (bool) {
 func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 	// If we have no client details just close or we are going to have issues.
 	if client == nil {
+		// TODO: Needs proper error reporting
 		connection.Close()
 	}
 	// Call the event listener with the approp. details
@@ -300,13 +269,16 @@ func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 	// Remove our connection from the user connection list.
 	client.removeConnection(connection)
 	// Determine whether we need to remove the user from the online list
+	// TODO: Needs proper error reporting
 	if len(client.connections) <= 0 {
 		// Remove our client from all the rooms
+		// TODO: Needs proper error reporting
 		s.LeaveAllRooms(client.Username)
 		// Remove from local online list
 		s.removeClient(client)
 	}
 	// Close the Connection
+	// TODO: Needs proper error reporting
 	connection.Close()
 }
 
@@ -321,4 +293,3 @@ func (s *Sockets) removeClient(client *Client) {
 	delete(s.clients, client.Username)
 	s.Unlock()
 }
-

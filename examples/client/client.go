@@ -21,17 +21,51 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-package sockets
+package main
 
-import "github.com/Syleron/sockets/common"
+import (
+	"fmt"
+	sktsClient "github.com/Syleron/sockets/client"
+	"github.com/Syleron/sockets/common"
+	"time"
+)
 
-var events map[string]EventFunc
-
-type EventFunc func(msg *common.Message, ctx *Context)
-
-func EventHandler(msg *common.Message, ctx *Context) {
-	event := events[msg.EventName]
-	if event != nil {
-		event(msg, ctx)
+func main() {
+	// Generate JWT token
+	jwt, err := common.GenerateJWT("steve","SuperSecretKey")
+	if err != nil {
+		panic(err)
 	}
+
+
+	// Create our websocket client
+	client := sktsClient.Dial("127.0.0.1:5000", jwt, false)
+	defer client.Close()
+
+	// Define event handler
+
+	client.HandleEvent("pong", pong)
+
+	payload := &common.Message{
+		EventName: "ping",
+		Data: "",
+	}
+
+	// Send our initial request
+	client.Emit(payload)
+
+	// Send another
+	count := 0
+	for range time.Tick(5 * time.Second) {
+		if count < 1 {
+			client.Emit(payload)
+			count++
+		} else {
+				return
+		}
+	}
+}
+
+func pong(msg *common.Message) {
+	fmt.Println("> Recieved WSKT 'pong'")
 }

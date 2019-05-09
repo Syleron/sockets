@@ -1,7 +1,7 @@
 /**
 MIT License
 
-Copyright (c) 2018 Andrew Zak <andrew@linux.com>
+Copyright (c) 2018-2019 Andrew Zak <andrew@linux.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -24,14 +24,15 @@ SOFTWARE.
 package sockets
 
 import (
+	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
-	"time"
 	"sync"
-	)
+	"time"
+)
 
 type Client struct {
-	Username string `json:"username"`
-	connected bool
+	Username    string `json:"username"`
+	connected   bool
 	connections []*Connection
 	sync.Mutex
 }
@@ -60,11 +61,11 @@ func (c *Client) removeConnection(conn *websocket.Conn) {
 	c.Unlock()
 }
 
-func(c *Client) Emit(data string) {
+func (c *Client) Emit(msg *common.Message) {
 	// We are sending this to a single user
 	// but on multiple connections.
 	for _, connection := range c.connections {
-		connection.Conn.WriteJSON(data)
+		connection.Conn.WriteJSON(msg)
 	}
 }
 
@@ -79,7 +80,7 @@ func (c *Client) getConnection(conn *websocket.Conn) *Connection {
 
 /**
 TODO: Replace with gorillas internal ping/poing handler(s)
- */
+*/
 func (c *Client) pingHandler() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -87,8 +88,9 @@ func (c *Client) pingHandler() {
 	for {
 		select {
 		case <-ticker.C:
-			c.Emit("ping")
+			c.Emit(&common.Message{
+				EventName: "ping",
+			})
 		}
 	}
 }
-

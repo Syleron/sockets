@@ -16,36 +16,95 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
 * JWT authentication.
 * Room & Room Channel support.
 * Easily broadcast to Rooms/Channels.
-* Multi-connection under the same auth username.
+* Multiple connections under the same username.
 
 ### Installation
 
     go get github.com/Syleron/sockets
-    
+
+### Simple client usage
+
+    package main
+
+    import (
+        "fmt"
+        sktsClient "github.com/Syleron/sockets/client"
+        "github.com/Syleron/sockets/common"
+        "time"
+    )
+
+    func main() {
+        // Generate JWT token
+        jwt, err := common.GenerateJWT("steve","SuperSecretKey")
+        if err != nil {
+            panic(err)
+        }
+
+
+        // Create our websocket client
+        client := sktsClient.Dial("127.0.0.1:5000", jwt, false)
+        defer client.Close()
+
+        // Define event handler
+
+        client.HandleEvent("pong", pong)
+
+        payload := &common.Message{
+            EventName: "ping",
+            Data: "",
+        }
+
+        // Send our initial request
+        client.Emit(payload)
+
+        // Send another
+        count := 0
+        for range time.Tick(5 * time.Second) {
+            if count < 1 {
+                client.Emit(payload)
+                count++
+            } else {
+                    return
+            }
+        }
+    }
+
+    func pong(msg *common.Message) {
+        fmt.Println("> Recieved WSKT 'pong'")
+    }
+
 ### Simple server usage
 
     package main
 
     import (
-        "github.com/gin-gonic/gin"
+        "fmt"
         "github.com/Syleron/sockets"
+        "github.com/Syleron/sockets/common"
+        "github.com/gin-gonic/gin"
     )
-    
+
     type SocketHandler struct {}
-    
+
     func (h *SocketHandler) NewConnection(ctx *sockets.Context) {
-      // Do something when a new connection comes in
-    }
-    
-    func (h *SocketHandler) ConnectionClosed(ctx *sockets.Context) {
-      // Do something when a connection is closed
+        // Do something when a new connection comes in
+        fmt.Println("> Connection established")
     }
 
-    func main() {
+    func (h *SocketHandler) ConnectionClosed(ctx *sockets.Context) {
+        // Do something when a connection is closed
+        fmt.Println("> Connection closed")
+    }
+
+    func main () {
+        // Setup socket server
         sockets := sockets.New("SuperSecretKey", &SocketHandler{})
 
         // Register our events
-        sockets.HandleEvent("ping", testing)
+        sockets.HandleEvent("ping", ping)
+
+        // Set our gin release mode
+        gin.SetMode(gin.ReleaseMode)
 
         // Setup router
         router := gin.Default()
@@ -55,13 +114,24 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
             sockets.HandleConnections(c.Writer, c.Request)
         })
 
+        fmt.Println("> Sockets server started. Waiting for connections..")
+
         // Start server
         router.Run(":5000")
     }
 
-    func testing(msg *sockets.Message, ctx *sockets.Context) {
-        ctx.emit('pong')
+    func ping(msg *common.Message, ctx *sockets.Context) {
+        fmt.Println("> Recieved WSKT 'ping' responding with 'pong'")
+        ctx.Emit(&common.Message{
+            EventName: "pong",
+        })
     }
+
+### Projects using sockets
+
+- Yudofu: Anime social network
+
+Note: If your project is not listed here, let us know! :)
 
 ### Licence
 

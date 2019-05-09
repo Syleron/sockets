@@ -1,7 +1,7 @@
 /**
 MIT License
 
-Copyright (c) 2018 Andrew Zak <andrew@linux.com>
+Copyright (c) 2018-2019 Andrew Zak <andrew@linux.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -21,55 +21,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-package sockets
+package client
 
-import (
-	"log"
-	"github.com/dgrijalva/jwt-go"
-	"errors"
-)
+import "github.com/Syleron/sockets/common"
 
-var JWTKey string
+var events map[string]EventFunc
 
-type MapClaims map[string]interface{}
+type EventFunc func(msg *common.Message)
 
-type JWT struct {
-	Username string `json:"id"`
-	jwt.StandardClaims
-}
-
-func (t *JWT) validate() error {
-	var errMsgs string
-	if t.Username == "" {
-		return errors.New("missing username")
-	}
-	if errMsgs == "" {
-		return nil
-	} else {
-		return errors.New(errMsgs)
+func EventHandler(msg *common.Message) {
+	event := events[msg.EventName]
+	if event != nil {
+		event(msg)
 	}
 }
-
-func decodeJWT(tokenString string) (bool, JWT) {
-	var jwtt = JWT{}
-	token, err := jwt.ParseWithClaims(tokenString, &jwtt, func(token *jwt.Token) (interface{}, error) {
-		return []byte(JWTKey), nil
-	})
-	if err != nil {
-		return false, JWT{}
-	}
-	if token.Valid {
-		claims, ok := token.Claims.(*JWT)
-		if !ok {
-			return false, JWT{}
-		}
-		err := claims.validate()
-		if err != nil {
-			log.Println(err)
-			return false, JWT{}
-		}
-		return true, *claims
-	}
-	return false, JWT{}
-}
-
