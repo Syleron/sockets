@@ -40,7 +40,6 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
             panic(err)
         }
 
-
         // Create our websocket client
         client := sktsClient.Dial("127.0.0.1:5000", jwt, false)
         defer client.Close()
