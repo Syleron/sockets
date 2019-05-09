@@ -45,7 +45,6 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
         defer client.Close()
 
         // Define event handler
-
         client.HandleEvent("pong", pong)
 
         payload := &common.Message{

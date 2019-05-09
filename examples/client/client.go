@@ -42,7 +42,6 @@ func main() {
 	defer client.Close()
 
 	// Define event handler
-
 	client.HandleEvent("pong", pong)
 
 	payload := &common.Message{
