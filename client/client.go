@@ -78,6 +78,7 @@ func (c *Client) New(addr, jwt string, secure bool) error {
 	go c.handleIncoming()
 	// Handle messages
 	go c.handleMessages()
+	return nil
 }
 
 func (c *Client) handleMessages() {
