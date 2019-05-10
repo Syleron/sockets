@@ -26,12 +26,10 @@ package client
 import (
 	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
-	"log"
 	"net/url"
 	"os"
 	"os/signal"
 	"sync"
-	"time"
 )
 
 type DataHandler interface {
@@ -39,6 +37,8 @@ type DataHandler interface {
 	NewConnection()
 	// Client disconnect handler
 	ConnectionClosed()
+	// Client error handler
+	NewClientError(err error)
 }
 
 type Client struct {
@@ -46,14 +46,16 @@ type Client struct {
 	emitChan chan *common.Message
 	interrupt chan os.Signal
 	done chan struct{}
+	handler DataHandler
 	sync.Mutex
 }
 
-func Dial(addr, jwt string, secure bool) (*Client, error) {
+func Dial(addr, jwt string, secure bool, handler DataHandler) (*Client, error) {
 	client := &Client{}
 	client.emitChan = make(chan *common.Message)
 	client.interrupt = make(chan os.Signal, 1)
 	client.done = make(chan struct{})
+	client.handler = handler
 	signal.Notify(client.interrupt, os.Interrupt)
 	if err := client.New(addr, jwt, secure); err != nil {
 		return nil, err
@@ -74,6 +76,7 @@ func (c *Client) New(addr, jwt string, secure bool) error {
 	if err != nil {
 		return err
 	}
+	c.handler.NewConnection()
 	// Handle incoming requests
 	go c.handleIncoming()
 	// Handle messages
@@ -82,46 +85,40 @@ func (c *Client) New(addr, jwt string, secure bool) error {
 }
 
 func (c *Client) handleMessages() {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-c.done:
 			return
 		case d := <-c.emitChan:
 			if err := c.conn.WriteJSON(d); err != nil {
-				log.Println("write:", err)
+				c.handler.NewClientError(err)
 			}
 		case <-c.interrupt:
-			log.Println("interrupt")
-
 			// Cleanly close the connection by sending a close message and then
 			// waiting (with timeout) for the server to close the connection.
 			err := c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			if err != nil {
-				log.Println("write close:", err)
+				c.handler.NewClientError(err)
 				return
 			}
-			select {
-			case <-c.done:
-			case <-time.After(time.Second):
-			}
-			return
 		}
 	}
 }
 
 func (c *Client) handleIncoming() {
-	defer close(c.done)
 	for {
-		var msg common.Message
-		err := c.conn.ReadJSON(&msg)
-		if err != nil {
-			log.Println("read:", err)
-			continue
+		select {
+		case <-c.done:
+			return
+		default:
+			var msg common.Message
+			err := c.conn.ReadJSON(&msg)
+			if err != nil {
+				c.handler.NewClientError(err)
+				continue
+			}
+			EventHandler(&msg)
 		}
-		EventHandler(&msg)
 	}
 }
 
@@ -130,7 +127,12 @@ func (c *Client) Emit(msg *common.Message) {
 }
 
 func (c *Client) Close() {
-	c.conn.Close()
+	// Close our channels
+	close(c.done)
+	// Close our connection
+	c.conn.Close();
+	// Inform our handler
+	c.handler.ConnectionClosed()
 }
 
 func (c *Client) HandleEvent(pattern string, handler EventFunc) {
