@@ -33,15 +33,35 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
         "time"
     )
 
+    type SocketHandler struct{}
+
+    func (h *SocketHandler) NewConnection() {
+        // Do something when a new connection comes in
+        fmt.Println("> Connection established")
+    }
+
+    func (h *SocketHandler) ConnectionClosed() {
+        // Do something when a connection is closed
+        fmt.Println("> Connection closed")
+    }
+
+    func (h *SocketHandler) NewClientError(err error) {
+        // Do something when a connection error is found
+        fmt.Printf("> DEBUG %v\n", err)
+    }
+
     func main() {
         // Generate JWT token
-        jwt, err := common.GenerateJWT("steve","SuperSecretKey")
+        jwt, err := common.GenerateJWT("steve", "SuperSecretKey")
         if err != nil {
             panic(err)
         }
 
         // Create our websocket client
-        client := sktsClient.Dial("127.0.0.1:5000", jwt, false)
+        client, err := sktsClient.Dial("127.0.0.1:5000", jwt, false, &SocketHandler{})
+        if err != nil {
+            panic(err)
+        }
         defer client.Close()
 
         // Define event handler
@@ -49,7 +69,6 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
 
         payload := &common.Message{
             EventName: "ping",
-            Data: "",
         }
 
         // Send our initial request
@@ -62,7 +81,7 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
                 client.Emit(payload)
                 count++
             } else {
-                    return
+                return
             }
         }
     }

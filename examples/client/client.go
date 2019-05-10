@@ -30,7 +30,7 @@ import (
 	"time"
 )
 
-type SocketHandler struct {}
+type SocketHandler struct{}
 
 func (h *SocketHandler) NewConnection() {
 	// Do something when a new connection comes in
@@ -49,7 +49,7 @@ func (h *SocketHandler) NewClientError(err error) {
 
 func main() {
 	// Generate JWT token
-	jwt, err := common.GenerateJWT("steve","SuperSecretKey")
+	jwt, err := common.GenerateJWT("steve", "SuperSecretKey")
 	if err != nil {
 		panic(err)
 	}
@@ -78,7 +78,7 @@ func main() {
 			client.Emit(payload)
 			count++
 		} else {
-				return
+			return
 		}
 	}
 }
