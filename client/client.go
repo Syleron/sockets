@@ -128,7 +128,7 @@ func (c *Client) Emit(msg *common.Message) {
 
 func (c *Client) Close() {
 	// Close our channels
-	//close(c.done)
+	close(c.done)
 	// Close our connection
 	c.conn.Close();
 	// Inform our handler
