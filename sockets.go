@@ -131,7 +131,6 @@ func (s *Sockets) HandleConnections(w http.ResponseWriter, r *http.Request) {
 		})
 	} else {
 		client = &Client{}
-		go client.pingHandler()
 		client.addConnection(&Connection{
 			Conn: ws,
 			UUID: uuid,

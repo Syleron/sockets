@@ -59,7 +59,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer client.Close()
+	//defer client.Close()
 
 	// Define event handler
 	client.HandleEvent("pong", pong)
@@ -73,9 +73,9 @@ func main() {
 
 	// Send another
 	count := 0
-	for range time.Tick(5 * time.Second) {
+	for range time.Tick(600 * time.Second) {
 		if count < 1 {
-			client.Emit(payload)
+			//client.Emit(payload)
 			count++
 		} else {
 			return

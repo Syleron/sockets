@@ -57,7 +57,7 @@ type DataHandler interface {
 }
 
 type Client struct {
-	conn *websocket.Conn
+	ws *websocket.Conn
 	emitChan chan *common.Message
 	interrupt chan os.Signal
 	done chan struct{}
@@ -87,55 +87,71 @@ func (c *Client) New(addr, jwt string, secure bool) error {
 		sc = "ws"
 	}
 	u := url.URL{Scheme: sc, Host: addr, Path: "/ws"}
-	c.conn, _, err = websocket.DefaultDialer.Dial(u.String() + "?jwt="+jwt, nil)
+	c.ws, _, err = websocket.DefaultDialer.Dial(u.String() + "?jwt="+jwt, nil)
 	if err != nil {
 		return err
 	}
+	// Call interface function to signify a new connection
 	c.handler.NewConnection()
 	// Handle incoming requests
 	go c.handleIncoming()
-	// Handle messages
-	go c.handleMessages()
+	// Handle outgoing messages
+	go c.handleOutgoing()
 	return nil
 }
 
-func (c *Client) handleMessages() {
+func (c *Client) handleIncoming() {
+	defer func() {
+		c.Close()
+	}()
+	c.ws.SetReadLimit(maxMessageSize)
+	c.ws.SetReadDeadline(time.Now().Add(pongWait))
+	c.ws.SetPongHandler(func(string) error {
+		c.ws.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
 	for {
-		select {
-		case <-c.done:
-			return
-		case d := <-c.emitChan:
-			if err := c.conn.WriteJSON(d); err != nil {
-				c.handler.NewClientError(err)
-			}
-		case <-c.interrupt:
-			// Cleanly close the connection by sending a close message and then
-			// waiting (with timeout) for the server to close the connection.
-			err := c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			if err != nil {
-				c.handler.NewClientError(err)
-				return
-			}
+		var msg common.Message
+		err := c.ws.ReadJSON(&msg)
+		if err != nil {
+			break
 		}
+		EventHandler(&msg)
 	}
 }
 
-func (c *Client) handleIncoming() {
-	c.conn.SetReadLimit(maxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+func (c *Client) handleOutgoing() {
+	ticker := time.NewTicker(pingPeriod)
+
+	defer func() {
+		ticker.Stop()
+		c.Close()
+	}()
+
 	for {
 		select {
-		case <-c.done:
-			return
-		default:
-			var msg common.Message
-			err := c.conn.ReadJSON(&msg)
-			if err != nil {
+		// Take our message from our message channel
+		case message := <-c.emitChan:
+			c.ws.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.ws.WriteJSON(message); err != nil {
 				c.handler.NewClientError(err)
-				break;
 			}
-			EventHandler(&msg)
+		// Send a ping message depicted by our ticker
+		case <-ticker.C:
+			// Periodically send a ping message
+			c.ws.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.ws.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+				return
+			}
+		// Handle client interrupt
+		case <-c.interrupt:
+			// Cleanly close the connection by sending a close message and then
+			// waiting (with timeout) for the server to close the connection.
+			c.ws.SetWriteDeadline(time.Now().Add(writeWait))
+			err := c.ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			if err != nil {
+				return
+			}
 		}
 	}
 }
@@ -145,10 +161,8 @@ func (c *Client) Emit(msg *common.Message) {
 }
 
 func (c *Client) Close() {
-	// Close our channels
-	close(c.done)
 	// Close our connection
-	c.conn.Close();
+	c.ws.Close()
 	// Inform our handler
 	c.handler.ConnectionClosed()
 }

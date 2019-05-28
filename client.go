@@ -27,7 +27,6 @@ import (
 	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
 	"sync"
-	"time"
 )
 
 type Client struct {
@@ -76,21 +75,4 @@ func (c *Client) getConnection(conn *websocket.Conn) *Connection {
 		}
 	}
 	return nil
-}
-
-/**
-TODO: Replace with gorillas internal ping/poing handler(s)
-*/
-func (c *Client) pingHandler() {
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			c.Emit(&common.Message{
-				EventName: "ping",
-			})
-		}
-	}
 }
