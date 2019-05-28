@@ -30,6 +30,21 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"time"
+)
+
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 60 * time.Second
+
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+
+	// Maximum message size allowed from peer.
+	maxMessageSize = 512
 )
 
 type DataHandler interface {
@@ -106,6 +121,9 @@ func (c *Client) handleMessages() {
 }
 
 func (c *Client) handleIncoming() {
+	c.conn.SetReadLimit(maxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 	for {
 		select {
 		case <-c.done:
@@ -115,7 +133,7 @@ func (c *Client) handleIncoming() {
 			err := c.conn.ReadJSON(&msg)
 			if err != nil {
 				c.handler.NewClientError(err)
-				continue
+				break;
 			}
 			EventHandler(&msg)
 		}
