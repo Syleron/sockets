@@ -27,6 +27,7 @@ import (
 	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
 	"sync"
+	"time"
 )
 
 type Client struct {
@@ -41,8 +42,32 @@ type Connection struct {
 	Conn *websocket.Conn
 }
 
+func (c *Connection) pongHandler() {
+	ticker := time.NewTicker(pingPeriod)
+
+	defer func() {
+		ticker.Stop()
+		// TODO: This may cause issues as it may not clear up our connections array
+		c.Conn.Close()
+	}()
+
+	for {
+		select {
+		// Send a ping message depicted by our ticker
+		case <-ticker.C:
+			// Periodically send a ping message
+			if err := c.Conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+				return
+			}
+		}
+	}
+}
+
 func (c *Client) addConnection(newConnection *Connection) {
 	c.Lock()
+	// Start our pong handler
+	go newConnection.pongHandler()
+	// Append our connection
 	c.connections = append(
 		c.connections,
 		newConnection,
@@ -76,3 +101,4 @@ func (c *Client) getConnection(conn *websocket.Conn) *Connection {
 	}
 	return nil
 }
+

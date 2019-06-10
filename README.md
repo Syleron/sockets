@@ -128,7 +128,7 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
 
         // Setup websockets
         router.GET("/ws", func(c *gin.Context) {
-            sockets.HandleConnections(c.Writer, c.Request)
+            sockets.HandleConnection(c.Writer, c.Request)
         })
 
         fmt.Println("> Sockets server started. Waiting for connections..")

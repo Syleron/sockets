@@ -57,7 +57,7 @@ func main () {
 
 	// Setup websockets
 	router.GET("/ws", func(c *gin.Context) {
-		sockets.HandleConnections(c.Writer, c.Request)
+		sockets.HandleConnection(c.Writer, c.Request)
 	})
 
 	fmt.Println("> Sockets server started. Waiting for connections..")

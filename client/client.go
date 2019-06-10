@@ -27,24 +27,7 @@ import (
 	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
 	"net/url"
-	"os"
-	"os/signal"
 	"sync"
-	"time"
-)
-
-const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
-	// Maximum message size allowed from peer.
-	maxMessageSize = 512
 )
 
 type DataHandler interface {
@@ -59,8 +42,6 @@ type DataHandler interface {
 type Client struct {
 	ws *websocket.Conn
 	emitChan chan *common.Message
-	interrupt chan os.Signal
-	done chan struct{}
 	handler DataHandler
 	sync.Mutex
 }
@@ -68,10 +49,7 @@ type Client struct {
 func Dial(addr, jwt string, secure bool, handler DataHandler) (*Client, error) {
 	client := &Client{}
 	client.emitChan = make(chan *common.Message)
-	client.interrupt = make(chan os.Signal, 1)
-	client.done = make(chan struct{})
 	client.handler = handler
-	signal.Notify(client.interrupt, os.Interrupt)
 	if err := client.New(addr, jwt, secure); err != nil {
 		return nil, err
 	}
@@ -104,12 +82,6 @@ func (c *Client) handleIncoming() {
 	defer func() {
 		c.Close()
 	}()
-	c.ws.SetReadLimit(maxMessageSize)
-	c.ws.SetReadDeadline(time.Now().Add(pongWait))
-	c.ws.SetPongHandler(func(string) error {
-		c.ws.SetReadDeadline(time.Now().Add(pongWait))
-		return nil
-	})
 	for {
 		var msg common.Message
 		err := c.ws.ReadJSON(&msg)
@@ -121,36 +93,13 @@ func (c *Client) handleIncoming() {
 }
 
 func (c *Client) handleOutgoing() {
-	ticker := time.NewTicker(pingPeriod)
-
-	defer func() {
-		ticker.Stop()
-		c.Close()
-	}()
-
 	for {
 		select {
 		// Take our message from our message channel
 		case message := <-c.emitChan:
-			c.ws.SetWriteDeadline(time.Now().Add(writeWait))
+			//c.ws.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.ws.WriteJSON(message); err != nil {
 				c.handler.NewClientError(err)
-			}
-		// Send a ping message depicted by our ticker
-		case <-ticker.C:
-			// Periodically send a ping message
-			c.ws.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := c.ws.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				return
-			}
-		// Handle client interrupt
-		case <-c.interrupt:
-			// Cleanly close the connection by sending a close message and then
-			// waiting (with timeout) for the server to close the connection.
-			c.ws.SetWriteDeadline(time.Now().Add(writeWait))
-			err := c.ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			if err != nil {
-				return
 			}
 		}
 	}

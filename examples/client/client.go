@@ -73,7 +73,7 @@ func main() {
 
 	// Send another
 	count := 0
-	for range time.Tick(600 * time.Second) {
+	for range time.Tick(5 * time.Second) {
 		if count < 1 {
 			//client.Emit(payload)
 			count++
