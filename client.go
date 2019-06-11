@@ -26,6 +26,7 @@ package sockets
 import (
 	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
+	"github.com/rs/xid"
 	"sync"
 	"time"
 )
@@ -33,13 +34,14 @@ import (
 type Client struct {
 	Username    string `json:"username"`
 	connected   bool
-	connections []*Connection
+	connections map[string]*Connection // Indexed by UUID
 	sync.Mutex
 }
 
 type Connection struct {
-	UUID string `json:"uuid"`
+	//UUID string `json:"uuid"`
 	Conn *websocket.Conn
+	Room *Room
 }
 
 func (c *Connection) pongHandler() {
@@ -63,25 +65,24 @@ func (c *Connection) pongHandler() {
 	}
 }
 
-func (c *Client) addConnection(newConnection *Connection) {
+func (c *Client) addConnection(newConnection *Connection) string {
 	c.Lock()
+	defer c.Unlock()
+	if c.connections == nil {
+		c.connections = make(map[string]*Connection)
+	}
+	// Generate an unique ID
+	uuid := xid.New().String()
 	// Start our pong handler
 	go newConnection.pongHandler()
 	// Append our connection
-	c.connections = append(
-		c.connections,
-		newConnection,
-	)
-	c.Unlock()
+	c.connections[uuid] = newConnection
+	return uuid
 }
 
-func (c *Client) removeConnection(conn *websocket.Conn) {
+func (c *Client) removeConnection(uuid string) {
 	c.Lock()
-	for i, connection := range c.connections {
-		if connection.Conn == conn {
-			c.connections = append(c.connections[:i], c.connections[i+1:]...)
-		}
-	}
+	delete(c.connections, uuid)
 	c.Unlock()
 }
 
@@ -93,12 +94,12 @@ func (c *Client) Emit(msg *common.Message) {
 	}
 }
 
-func (c *Client) getConnection(conn *websocket.Conn) *Connection {
-	for _, c := range c.connections {
+func (c *Client) getConnection(conn *websocket.Conn) (string, *Connection) {
+	for uuid, c := range c.connections {
 		if c.Conn == conn {
-			return c
+			return uuid, c
 		}
 	}
-	return nil
+	return "", nil
 }
 

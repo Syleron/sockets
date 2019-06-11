@@ -26,12 +26,11 @@ package sockets
 import (
 	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
-	"github.com/rs/xid"
 	"net/http"
-	"sync"
-	"time"
 	"os"
 	"os/signal"
+	"sync"
+	"time"
 )
 
 type DataHandler interface {
@@ -57,7 +56,6 @@ const (
 
 type Sockets struct {
 	clients       map[string]*Client
-	rooms         map[string]*Room
 	broadcastChan chan Broadcast
 	interrupt     chan os.Signal
 	handler       DataHandler
@@ -68,6 +66,7 @@ type Sockets struct {
 type Context struct {
 	*Connection
 	*Client
+	UUID string
 }
 
 type Broadcast struct {
@@ -78,6 +77,7 @@ type Broadcast struct {
 type Room struct {
 	Name    string
 	Channel string
+	Conn    *websocket.Conn
 }
 
 var upgrader = websocket.Upgrader{
@@ -90,7 +90,6 @@ func New(jwtKey string, handler DataHandler) *Sockets {
 	// Setup the sockets object
 	sockets := &Sockets{}
 	sockets.clients = make(map[string]*Client)
-	sockets.rooms = make(map[string]*Room)
 	sockets.broadcastChan = make(chan Broadcast)
 	sockets.interrupt = make(chan os.Signal, 1)
 	signal.Notify(sockets.interrupt, os.Interrupt)
@@ -121,9 +120,8 @@ func (s *Sockets) InterruptHandler() {
 		case <-s.interrupt:
 			// Cleanly close the connection by sending a close message and then
 			// waiting (with timeout) for the server to close the connection.
-			for user := range s.rooms {
-				userClient := s.clients[user]
-				for _, conn := range userClient.connections {
+			for _, client := range s.clients {
+				for _, conn := range client.connections {
 					if conn.Conn == nil {
 						continue
 					}
@@ -164,22 +162,18 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) {
 
 	// Define our connection client
 	var client *Client
-
-	// Generate an unique ID
-	uuid := xid.New().String()
+	var uuid string
 
 	// TODO: Should split this out
 	if s.CheckIfClientExists(jwt.Username) {
 		client = s.clients[jwt.Username]
-		client.addConnection(&Connection{
+		uuid = client.addConnection(&Connection{
 			Conn: ws,
-			UUID: uuid,
 		})
 	} else {
 		client = &Client{}
-		client.addConnection(&Connection{
+		uuid = client.addConnection(&Connection{
 			Conn: ws,
-			UUID: uuid,
 		})
 		client.Username = jwt.Username
 		client.connected = true
@@ -189,9 +183,9 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	// Build our connection context
 	context := &Context{
 		Connection: &Connection{
-			UUID: uuid,
 			Conn: ws,
 		},
+		UUID: uuid,
 		Client: client,
 	}
 
@@ -219,92 +213,108 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interface{}) {
-	for user, room := range s.rooms {
-		if room.Name == roomName {
-			var message common.Response
-			message.EventName = event
-			message.Data = data
-			userClient := s.clients[user]
-			for _, conn := range userClient.connections {
+	for _, client := range s.clients {
+		for _, conn := range client.connections {
+			if conn.Room.Name == roomName {
+				var message common.Response
+				message.EventName = event
+				message.Data = data
 				if conn.Conn == nil {
 					continue
 				}
-				// TODO: Needs proper error reporting
-				conn.Conn.WriteJSON(message)
+				if err := conn.Conn.WriteJSON(message); err != nil {
+					// TODO: Needs proper error reporting
+					continue
+				}
 			}
 		}
 	}
 }
 
 func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, data, options interface{}) {
-	for user, room := range s.rooms {
-		if room.Name == roomName && room.Channel == channelName {
-			var message common.Response
-			message.EventName = event
-			message.Data = data
-			userClient := s.clients[user]
-			for _, conn := range userClient.connections {
+	for _, client := range s.clients {
+		for _, conn := range client.connections {
+			if conn.Room.Name == roomName && conn.Room.Channel == channelName {
+				var message common.Response
+				message.EventName = event
+				message.Data = data
 				if conn.Conn == nil {
 					continue
 				}
-				// TODO: Needs proper error reporting
-				conn.Conn.WriteJSON(message)
+				if err := conn.Conn.WriteJSON(message); err != nil {
+					// TODO: Needs proper error reporting
+					continue
+				}
 			}
 		}
 	}
 }
 
 func (s *Sockets) CheckIfClientExists(username string) bool {
-	// PLEASE
 	if s.clients[username] != nil {
 		return true
 	}
 	return false
 }
 
-func (s *Sockets) GetUserRoom(username string) (string) {
-	if s.rooms[username] == nil {
-		return ""
+func (s *Sockets) GetUserRoom(username, uuid string) (string) {
+	if client := s.clients[username]; client != nil {
+		if conn := client.connections[uuid]; conn != nil {
+			return conn.Room.Name
+		}
 	}
-	return s.rooms[username].Name
+	return ""
 }
 
-func (s *Sockets) LeaveAllRooms(username string) {
+func (s *Sockets) LeaveRoom(username, uuid string) {
 	s.Lock()
-	delete(s.rooms, username)
+	defer s.Unlock()
+	if client := s.clients[username]; client != nil {
+		if conn := client.connections[uuid]; conn != nil {
+			conn.Room = nil
+		}
+	}
+}
+
+func (s *Sockets) GetUserRoomChannel(username, uuid string) (string) {
+	if client := s.clients[username]; client != nil {
+		if conn := client.connections[uuid]; conn != nil {
+				return conn.Room.Channel
+		}
+	}
+	return ""
+}
+
+func (s *Sockets) JoinRoom(username, room, uuid string, conn *websocket.Conn) {
+	s.Lock()
+	if client := s.clients[username]; client != nil {
+		if c := client.connections[uuid]; conn != nil {
+			c.Room = &Room{
+				Name: room,
+				Conn: conn,
+			}
+		}
+	}
 	s.Unlock()
 }
 
-func (s *Sockets) GetUserRoomChannel(username string) (string) {
-	if s.rooms[username] == nil {
-		return ""
-	}
-	return s.rooms[username].Channel
-}
-
-func (s *Sockets) JoinRoom(username, room string) {
+func (s *Sockets) JoinRoomChannel(username, channel, uuid string) {
 	s.Lock()
-	s.rooms[username] = &Room{
-		Name: room,
+	if client := s.clients[username]; client != nil {
+		if conn := client.connections[uuid]; conn != nil {
+			conn.Room.Channel = channel
+		}
 	}
 	s.Unlock()
 }
 
-func (s *Sockets) JoinRoomChannel(username, channel string) {
-	s.Lock()
-	if s.rooms[username] == nil {
-		return
-	}
-	s.rooms[username].Channel = channel
-	s.Unlock()
-}
-
-func (s *Sockets) UserInARoom(username string) (bool) {
-	if s.rooms[username] == nil {
-		return false
-	}
-	if s.rooms[username].Name == "" {
-		return false
+func (s *Sockets) UserInARoom(username, uuid string) (bool) {
+	if client := s.clients[username]; client != nil {
+		if conn := client.connections[uuid]; conn != nil {
+			if conn.Room == nil {
+				return false
+			}
+		}
 	}
 	return true
 }
@@ -312,16 +322,15 @@ func (s *Sockets) UserInARoom(username string) (bool) {
 func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 	// Do we have a client and a connection?
 	if client != nil && connection != nil {
+		uuid, conn := client.getConnection(connection)
 		s.handler.ConnectionClosed(&Context{
-			Connection: client.getConnection(connection),
+			Connection: conn,
 			Client:     client,
 		})
 		// Remove our connection from the user connection list.
-		client.removeConnection(connection)
+		client.removeConnection(uuid)
 		// Determine whether we need to remove the user from the online list
 		if len(client.connections) <= 0 {
-			// Remove our client from all the rooms
-			s.LeaveAllRooms(client.Username)
 			// Remove from local online list
 			s.removeClient(client)
 		}
@@ -330,7 +339,7 @@ func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 	} else {
 		s.handler.ConnectionClosed(&Context{
 			Connection: nil,
-			Client: client,
+			Client:     client,
 		})
 		if connection != nil {
 			connection.Close()
