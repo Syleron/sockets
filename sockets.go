@@ -77,7 +77,6 @@ type Broadcast struct {
 type Room struct {
 	Name    string
 	Channel string
-	Conn    *websocket.Conn
 }
 
 var upgrader = websocket.Upgrader{
@@ -285,13 +284,12 @@ func (s *Sockets) GetUserRoomChannel(username, uuid string) (string) {
 	return ""
 }
 
-func (s *Sockets) JoinRoom(username, room, uuid string, conn *websocket.Conn) {
+func (s *Sockets) JoinRoom(username, room, uuid string) {
 	s.Lock()
 	if client := s.clients[username]; client != nil {
-		if c := client.connections[uuid]; conn != nil {
-			c.Room = &Room{
+		if conn := client.connections[uuid]; conn != nil {
+			conn.Room = &Room{
 				Name: room,
-				Conn: conn,
 			}
 		}
 	}
