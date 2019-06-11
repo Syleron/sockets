@@ -30,6 +30,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var ws *sockets.Sockets
+
 type SocketHandler struct {}
 
 func (h *SocketHandler) NewConnection(ctx *sockets.Context) {
@@ -44,10 +46,10 @@ func (h *SocketHandler) ConnectionClosed(ctx *sockets.Context) {
 
 func main () {
 	// Setup socket server
-	sockets := sockets.New("SuperSecretKey", &SocketHandler{})
+	ws = sockets.New("SuperSecretKey", &SocketHandler{})
 
 	// Register our events
-	sockets.HandleEvent("ping", ping)
+	ws.HandleEvent("ping", ping)
 
 	// Set our gin release mode
 	gin.SetMode(gin.ReleaseMode)
@@ -57,7 +59,7 @@ func main () {
 
 	// Setup websockets
 	router.GET("/ws", func(c *gin.Context) {
-		sockets.HandleConnection(c.Writer, c.Request)
+		ws.HandleConnection(c.Writer, c.Request)
 	})
 
 	fmt.Println("> Sockets server started. Waiting for connections..")
@@ -68,6 +70,7 @@ func main () {
 
 func ping(msg *common.Message, ctx *sockets.Context) {
 	fmt.Println("> Recieved WSKT 'ping' responding with 'pong'")
+
 	ctx.Emit(&common.Message{
 		EventName: "pong",
 	})

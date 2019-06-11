@@ -59,7 +59,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	//defer client.Close()
 
 	// Define event handler
 	client.HandleEvent("pong", pong)
