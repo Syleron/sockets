@@ -168,11 +168,13 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		client = s.clients[jwt.Username]
 		uuid = client.addConnection(&Connection{
 			Conn: ws,
+			Room: &Room{},
 		})
 	} else {
 		client = &Client{}
 		uuid = client.addConnection(&Connection{
 			Conn: ws,
+			Room: &Room{},
 		})
 		client.Username = jwt.Username
 		client.connected = true
