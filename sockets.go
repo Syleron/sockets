@@ -168,13 +168,19 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		client = s.clients[jwt.Username]
 		uuid = client.addConnection(&Connection{
 			Conn: ws,
-			Room: &Room{},
+			Room: &Room{
+				Name: "",
+				Channel: "",
+			},
 		})
 	} else {
 		client = &Client{}
 		uuid = client.addConnection(&Connection{
 			Conn: ws,
-			Room: &Room{},
+			Room: &Room{
+				Name: "",
+				Channel: "",
+			},
 		})
 		client.Username = jwt.Username
 		client.connected = true
@@ -216,8 +222,7 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) {
 func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interface{}) {
 	for _, client := range s.clients {
 		for _, conn := range client.connections {
-			// Make sure the connection isn't nil
-			if conn == nil {
+			if conn == nil || conn.Room == nil {
 				continue
 			}
 			if conn.Room.Name == roomName {
@@ -239,8 +244,7 @@ func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interfac
 func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, data, options interface{}) {
 	for _, client := range s.clients {
 		for _, conn := range client.connections {
-			// Make sure the connection isn't nil
-			if conn == nil {
+			if conn == nil || conn.Room == nil  {
 				continue
 			}
 			if conn.Room.Name == roomName && conn.Room.Channel == channelName {
