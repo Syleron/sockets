@@ -76,8 +76,8 @@ type Broadcast struct {
 }
 
 type Room struct {
-	Name    string
-	Channel string
+	Name    string `json:"name"`
+	Channel string `json:"channel"`
 }
 
 var upgrader = websocket.Upgrader{

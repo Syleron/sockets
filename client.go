@@ -33,15 +33,15 @@ import (
 
 type Client struct {
 	Username    string `json:"username"`
-	connected   bool
-	connections map[string]*Connection // Indexed by UUID
+	connected   bool `json:"connected"`
+	connections map[string]*Connection `json:connections` // Indexed by UUID
 	sync.Mutex
 }
 
 type Connection struct {
 	//UUID string `json:"uuid"`
 	Conn *websocket.Conn
-	Room *Room
+	Room *Room `json:"room"`
 }
 
 func (c *Connection) pongHandler() {
