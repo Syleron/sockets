@@ -24,6 +24,7 @@ SOFTWARE.
 package sockets
 
 import (
+	"errors"
 	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
 	"net/http"
@@ -270,13 +271,13 @@ func (s *Sockets) CheckIfClientExists(username string) bool {
 	return false
 }
 
-func (s *Sockets) GetUserRoom(username, uuid string) (string) {
+func (s *Sockets) GetUserRoom(username, uuid string) (string, error) {
 	if client := s.clients[username]; client != nil {
 		if conn := client.connections[uuid]; conn != nil {
-			return conn.Room.Name
+			return conn.Room.Name, nil
 		}
 	}
-	return ""
+	return "", errors.New("unable to find room for user " + username + " with UUID " + uuid)
 }
 
 func (s *Sockets) LeaveRoom(username, uuid string) {
@@ -289,13 +290,13 @@ func (s *Sockets) LeaveRoom(username, uuid string) {
 	}
 }
 
-func (s *Sockets) GetUserRoomChannel(username, uuid string) (string) {
+func (s *Sockets) GetUserRoomChannel(username, uuid string) (string, error) {
 	if client := s.clients[username]; client != nil {
 		if conn := client.connections[uuid]; conn != nil {
-				return conn.Room.Channel
+				return conn.Room.Channel, nil
 		}
 	}
-	return ""
+	return "", errors.New("unable to find room channel for user " + username + " with UUID " + uuid)
 }
 
 func (s *Sockets) JoinRoom(username, room, uuid string) {
