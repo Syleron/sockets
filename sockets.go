@@ -299,26 +299,36 @@ func (s *Sockets) GetUserRoomChannel(username, uuid string) (string, error) {
 	return "", errors.New("unable to find room channel for user " + username + " with UUID " + uuid)
 }
 
-func (s *Sockets) JoinRoom(username, room, uuid string) {
+func (s *Sockets) JoinRoom(username, room, uuid string) error {
 	s.Lock()
+	defer s.Unlock()
 	if client := s.Clients[username]; client != nil {
 		if conn := client.connections[uuid]; conn != nil {
 			conn.Room = &Room{
 				Name: room,
 			}
+		} else {
+			return errors.New("unable to find client connection")
 		}
+	} else {
+		return errors.New("unable to find username in client list")
 	}
-	s.Unlock()
+	return nil
 }
 
-func (s *Sockets) JoinRoomChannel(username, channel, uuid string) {
+func (s *Sockets) JoinRoomChannel(username, channel, uuid string) error {
 	s.Lock()
+	defer s.Unlock()
 	if client := s.Clients[username]; client != nil {
 		if conn := client.connections[uuid]; conn != nil {
 			conn.Room.Channel = channel
+		} else {
+			return errors.New("unable to find client connection")
 		}
+	} else {
+		return errors.New("unable to find username in client list")
 	}
-	s.Unlock()
+	return nil
 }
 
 func (s *Sockets) UserInARoom(username, uuid string) (bool) {
