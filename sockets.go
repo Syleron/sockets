@@ -27,6 +27,7 @@ import (
 	"errors"
 	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -136,28 +137,27 @@ func (s *Sockets) InterruptHandler() {
 	}
 }
 
-func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) {
+func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		return
+		return err
 	}
 	query := r.URL.Query()
 	jwtString := query.Get("jwt")
 
 	// Check to see if the JWT is undefined
 	if jwtString == "undefined" || jwtString == "" {
-		// TODO: Needs proper error reporting
+		log.Println("Authentication bearer token not found")
 		ws.Close()
-		return
+		return errors.New("missing authentication bearer token")
 	}
 
 	success, jwt := common.DecodeJWT(jwtString, s.jwtKey)
 
 	// Unable to decode JWT
 	if !success {
-		// TODO: Needs proper error reporting
 		ws.Close()
-		return
+		return errors.New("unable to decode authentication bearer token")
 	}
 
 	// Define our connection client
@@ -218,6 +218,7 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		}
 		EventHandler(&msg, context)
 	}
+	return nil
 }
 
 func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interface{}) {
