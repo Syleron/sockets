@@ -33,7 +33,7 @@ import (
 type MapClaims map[string]interface{}
 
 type JWT struct {
-	Username string `json:"id"`
+	Username string `json:"username"`
 	jwt.StandardClaims
 }
 
