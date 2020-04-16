@@ -24,16 +24,16 @@ SOFTWARE.
 package sockets
 
 import (
-	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
 	"github.com/rs/xid"
+	"github.com/syleron/sockets/common"
 	"sync"
 	"time"
 )
 
 type Client struct {
-	Username    string `json:"username"`
-	connected   bool `json:"connected"`
+	Username    string                 `json:"username"`
+	connected   bool                   `json:"connected"`
 	connections map[string]*Connection `json:connections` // Indexed by UUID
 	sync.Mutex
 }
@@ -102,4 +102,3 @@ func (c *Client) getConnection(conn *websocket.Conn) (string, *Connection) {
 	}
 	return "", nil
 }
-

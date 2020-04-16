@@ -25,8 +25,8 @@ package main
 
 import (
 	"fmt"
-	sktsClient "github.com/Syleron/sockets/client"
-	"github.com/Syleron/sockets/common"
+	sktsClient "github.com/syleron/sockets/client"
+	"github.com/syleron/sockets/common"
 	"time"
 )
 

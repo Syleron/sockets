@@ -23,7 +23,7 @@ SOFTWARE.
 */
 package client
 
-import "github.com/Syleron/sockets/common"
+import "github.com/syleron/sockets/common"
 
 var events map[string]EventFunc
 

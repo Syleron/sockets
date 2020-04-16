@@ -24,8 +24,8 @@ SOFTWARE.
 package client
 
 import (
-	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
+	"github.com/syleron/sockets/common"
 	"net/url"
 	"sync"
 )
@@ -40,9 +40,9 @@ type DataHandler interface {
 }
 
 type Client struct {
-	ws *websocket.Conn
+	ws       *websocket.Conn
 	emitChan chan *common.Message
-	handler DataHandler
+	handler  DataHandler
 	sync.Mutex
 }
 
@@ -65,7 +65,7 @@ func (c *Client) New(addr, jwt string, secure bool) error {
 		sc = "ws"
 	}
 	u := url.URL{Scheme: sc, Host: addr, Path: "/ws"}
-	c.ws, _, err = websocket.DefaultDialer.Dial(u.String() + "?jwt="+jwt, nil)
+	c.ws, _, err = websocket.DefaultDialer.Dial(u.String()+"?jwt="+jwt, nil)
 	if err != nil {
 		return err
 	}

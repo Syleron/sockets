@@ -5,8 +5,8 @@
 /___/\___/\__/_/\_\\__/\__/___/               
 
 ```
-[![Build Status](https://travis-ci.org/Syleron/sockets.svg?branch=master)](https://travis-ci.org/Syleron/sockets)
-<a href="https://godoc.org/github.com/Syleron/sockets"><img src="https://godoc.org/github.com/Syleron/sockets?status.svg"><a/>
+[![Build Status](https://travis-ci.org/syleron/sockets.svg?branch=master)](https://travis-ci.org/syleron/sockets)
+<a href="https://godoc.org/github.com/syleron/sockets"><img src="https://godoc.org/github.com/syleron/sockets?status.svg"><a/>
 <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/github/license/mashape/apistatus.svg"><a/>
 
 Sockets is a websocket framework based on gorilla/websocket providing a simple way to write real-time apps.
@@ -20,7 +20,7 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
 
 ### Installation
 
-    go get github.com/Syleron/sockets
+    go get github.com/syleron/sockets
 
 ### Simple client usage
 
@@ -28,8 +28,8 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
 
     import (
         "fmt"
-        sktsClient "github.com/Syleron/sockets/client"
-        "github.com/Syleron/sockets/common"
+        sktsClient "github.com/syleron/sockets/client"
+        "github.com/syleron/sockets/common"
         "time"
     )
 
@@ -96,8 +96,8 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
 
     import (
         "fmt"
-        "github.com/Syleron/sockets"
-        "github.com/Syleron/sockets/common"
+        "github.com/syleron/sockets"
+        "github.com/syleron/sockets/common"
         "github.com/gin-gonic/gin"
     )
 

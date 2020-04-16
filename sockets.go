@@ -25,8 +25,8 @@ package sockets
 
 import (
 	"errors"
-	"github.com/Syleron/sockets/common"
 	"github.com/gorilla/websocket"
+	"github.com/syleron/sockets/common"
 	"log"
 	"net/http"
 	"os"
@@ -170,7 +170,7 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 		uuid = client.addConnection(&Connection{
 			Conn: ws,
 			Room: &Room{
-				Name: "",
+				Name:    "",
 				Channel: "",
 			},
 		})
@@ -179,7 +179,7 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 		uuid = client.addConnection(&Connection{
 			Conn: ws,
 			Room: &Room{
-				Name: "",
+				Name:    "",
 				Channel: "",
 			},
 		})
@@ -193,7 +193,7 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 		Connection: &Connection{
 			Conn: ws,
 		},
-		UUID: uuid,
+		UUID:   uuid,
 		Client: client,
 	}
 
@@ -246,7 +246,7 @@ func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interfac
 func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, data, options interface{}) {
 	for _, client := range s.Clients {
 		for _, conn := range client.connections {
-			if conn == nil || conn.Room == nil  {
+			if conn == nil || conn.Room == nil {
 				continue
 			}
 			if conn.Room.Name == roomName && conn.Room.Channel == channelName {
@@ -294,7 +294,7 @@ func (s *Sockets) LeaveRoom(username, uuid string) {
 func (s *Sockets) GetUserRoomChannel(username, uuid string) (string, error) {
 	if client := s.Clients[username]; client != nil {
 		if conn := client.connections[uuid]; conn != nil {
-				return conn.Room.Channel, nil
+			return conn.Room.Channel, nil
 		}
 	}
 	return "", errors.New("unable to find room channel for user " + username + " with UUID " + uuid)
@@ -332,7 +332,7 @@ func (s *Sockets) JoinRoomChannel(username, channel, uuid string) error {
 	return nil
 }
 
-func (s *Sockets) UserInARoom(username, uuid string) (bool) {
+func (s *Sockets) UserInARoom(username, uuid string) bool {
 	if client := s.Clients[username]; client != nil {
 		if conn := client.connections[uuid]; conn != nil {
 			if conn.Room == nil {

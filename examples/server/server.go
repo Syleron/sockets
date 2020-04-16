@@ -25,8 +25,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/Syleron/sockets"
-	"github.com/Syleron/sockets/common"
+	"github.com/syleron/sockets"
+	"github.com/syleron/sockets/common"
 	"github.com/gin-gonic/gin"
 )
 

@@ -86,7 +86,7 @@ func DecodeJWTNoVerify(tokenString string) (jwt.MapClaims, error) {
 
 func GenerateJWT(username, secret string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"id": username,
+		"id":  username,
 		"exp": time.Now().Add(time.Hour).Unix(),
 	})
 	tokenString, err := token.SignedString([]byte(secret))
