@@ -350,6 +350,7 @@ func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 		s.handler.ConnectionClosed(&Context{
 			Connection: conn,
 			Client:     client,
+			UUID:       uuid,
 		})
 		// Remove our connection from the user connection list.
 		client.removeConnection(uuid)
