@@ -164,36 +164,29 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 	var client *Client
 	var uuid string
 
+	newConnection := &Connection{
+		Conn: ws,
+		Status: true,
+		Room: &Room{
+			Name: "",
+			Channel: "",
+		},
+	}
+
 	// TODO: Should split this out
 	if s.CheckIfClientExists(jwt.Username) {
 		client = s.Clients[jwt.Username]
-		uuid = client.addConnection(&Connection{
-			Conn: ws,
-			Status: true,
-			Room: &Room{
-				Name:    "",
-				Channel: "",
-			},
-		})
+		uuid = client.addConnection(newConnection)
 	} else {
 		client = &Client{}
-		uuid = client.addConnection(&Connection{
-			Conn: ws,
-			Status: true,
-			Room: &Room{
-				Name:    "",
-				Channel: "",
-			},
-		})
+		uuid = client.addConnection(newConnection)
 		client.Username = jwt.Username
 		s.addClient(client)
 	}
 
 	// Build our connection context
 	context := &Context{
-		Connection: &Connection{
-			Conn: ws,
-		},
+		Connection: newConnection,
 		UUID:   uuid,
 		Client: client,
 	}
