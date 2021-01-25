@@ -33,15 +33,15 @@ import (
 
 type Client struct {
 	Username    string                 `json:"username"`
-	connections map[string]*Connection `json:connections` // Indexed by UUID
+	connections map[string]*Connection `json:"connections"` // Indexed by UUID
 	sync.Mutex
 }
 
 type Connection struct {
 	//UUID string `json:"uuid"`
-	Conn      *websocket.Conn
-	Connected bool  `json:"connected"`
-	Room      *Room `json:"room"`
+	Conn   *websocket.Conn
+	Status bool  `json:"status"`
+	Room   *Room `json:"room"`
 }
 
 func (c *Connection) pongHandler() {
@@ -49,7 +49,7 @@ func (c *Connection) pongHandler() {
 
 	defer func() {
 		// Set our connection state
-		c.Connected = false
+		c.Status = false
 		// Stop our ticker
 		ticker.Stop()
 		// Close our connection
@@ -77,8 +77,6 @@ func (c *Client) addConnection(newConnection *Connection) string {
 	}
 	// Generate an unique ID
 	uuid := xid.New().String()
-	// Set our connection state
-	newConnection.Connected = true
 	// Start our pong handler
 	go newConnection.pongHandler()
 	// Append our connection

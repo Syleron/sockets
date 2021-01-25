@@ -169,6 +169,7 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 		client = s.Clients[jwt.Username]
 		uuid = client.addConnection(&Connection{
 			Conn: ws,
+			Status: true,
 			Room: &Room{
 				Name:    "",
 				Channel: "",
@@ -178,6 +179,7 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 		client = &Client{}
 		uuid = client.addConnection(&Connection{
 			Conn: ws,
+			Status: true,
 			Room: &Room{
 				Name:    "",
 				Channel: "",
