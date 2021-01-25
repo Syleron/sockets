@@ -184,7 +184,6 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 			},
 		})
 		client.Username = jwt.Username
-		client.connected = true
 		s.addClient(client)
 	}
 
