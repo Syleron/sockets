@@ -38,10 +38,15 @@ type Client struct {
 }
 
 type Connection struct {
-	//UUID string `json:"uuid"`
 	Conn   *websocket.Conn
 	Status bool  `json:"status"`
 	Room   *Room `json:"room"`
+}
+
+func NewClient(username string) *Client {
+	return &Client{
+		Username: username,
+	}
 }
 
 func (c *Connection) pongHandler() {

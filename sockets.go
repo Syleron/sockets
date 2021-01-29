@@ -160,9 +160,11 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 		return errors.New("unable to decode authentication bearer token")
 	}
 
-	// Define our connection client
-	var client *Client
+	// Define our UUID variable
 	var uuid string
+
+	// Define our connection client
+	client := NewClient(jwt.Username)
 
 	newConnection := &Connection{
 		Conn: ws,
@@ -175,12 +177,14 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 
 	// TODO: Should split this out
 	if s.CheckIfClientExists(jwt.Username) {
+		// Set our client object
 		client = s.Clients[jwt.Username]
+		// Set our UUID
 		uuid = client.addConnection(newConnection)
 	} else {
-		client = &Client{}
+		// Set our UUID
 		uuid = client.addConnection(newConnection)
-		client.Username = jwt.Username
+		// Keep track of our new client
 		s.addClient(client)
 	}
 
@@ -280,7 +284,7 @@ func (s *Sockets) LeaveRoom(username, uuid string) {
 	defer s.Unlock()
 	if client := s.Clients[username]; client != nil {
 		if conn := client.connections[uuid]; conn != nil {
-			conn.Room = nil
+			conn.Room = &Room{}
 		}
 	}
 }
@@ -329,7 +333,7 @@ func (s *Sockets) JoinRoomChannel(username, channel, uuid string) error {
 func (s *Sockets) UserInARoom(username, uuid string) bool {
 	if client := s.Clients[username]; client != nil {
 		if conn := client.connections[uuid]; conn != nil {
-			if conn.Room == nil {
+			if conn.Room.Name == "" {
 				return false
 			}
 		}
@@ -368,12 +372,12 @@ func (s *Sockets) closeWS(client *Client, connection *websocket.Conn) {
 
 func (s *Sockets) addClient(client *Client) {
 	s.Lock()
+	defer s.Unlock()
 	s.Clients[client.Username] = client
-	s.Unlock()
 }
 
 func (s *Sockets) removeClient(client *Client) {
 	s.Lock()
+	defer s.Unlock()
 	delete(s.Clients, client.Username)
-	s.Unlock()
 }
