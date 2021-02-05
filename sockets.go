@@ -219,6 +219,26 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
+func (s *Sockets) Broadcast(event string, data, options interface{}) {
+	for _, client := range s.Clients {
+		for _, conn := range client.connections {
+			if conn == nil || conn.Room == nil {
+				continue
+			}
+			var message common.Response
+			message.EventName = event
+			message.Data = data
+			if conn.Conn == nil {
+				continue
+			}
+			if err := conn.Conn.WriteJSON(message); err != nil {
+				// TODO: Needs proper error reporting
+				continue
+			}
+		}
+	}
+}
+
 func (s *Sockets) BroadcastToRoom(roomName, event string, data, options interface{}) {
 	for _, client := range s.Clients {
 		for _, conn := range client.connections {
