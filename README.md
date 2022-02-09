@@ -11,9 +11,10 @@
 
 Sockets is a websocket framework based on gorilla/websocket providing a simple way to write real-time apps.
 
+ATTENTION: As of the latest release, I've removed JWT authentication as I believe this is best handled by specific project implementations rather than this project.
+
 ### Features
 
-* JWT authentication.
 * Room & Room Channel support.
 * Easily broadcast to Rooms/Channels.
 * Multiple connections under the same username.

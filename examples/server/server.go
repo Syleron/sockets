@@ -46,7 +46,7 @@ func (h *SocketHandler) ConnectionClosed(ctx *sockets.Context) {
 
 func main () {
 	// Setup socket server
-	ws = sockets.New("SuperSecretKey", &SocketHandler{})
+	ws = sockets.New(&SocketHandler{})
 
 	// Register our events
 	ws.HandleEvent("ping", ping)
@@ -70,6 +70,9 @@ func main () {
 
 func ping(msg *common.Message, ctx *sockets.Context) {
 	fmt.Println("> Recieved WSKT 'ping' responding with 'pong'")
+
+	// Store our connection for a particular user
+	ws.NewUserSession("user1", ctx.Connection)
 
 	ctx.Emit(&common.Message{
 		EventName: "pong",
