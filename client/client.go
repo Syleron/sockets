@@ -46,7 +46,7 @@ type Client struct {
 	sync.Mutex
 }
 
-func Dial(addr, secure bool, handler DataHandler) (*Client, error) {
+func Dial(addr string, secure bool, handler DataHandler) (*Client, error) {
 	client := &Client{}
 	client.emitChan = make(chan *common.Message)
 	client.handler = handler
