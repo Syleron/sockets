@@ -48,14 +48,8 @@ func (h *SocketHandler) NewClientError(err error) {
 }
 
 func main() {
-	// Generate JWT token
-	jwt, err := common.GenerateJWT("steve", "SuperSecretKey")
-	if err != nil {
-		panic(err)
-	}
-
 	// Create our websocket client
-	client, err := sktsClient.Dial("127.0.0.1:5000", jwt, false, &SocketHandler{})
+	client, err := sktsClient.Dial("127.0.0.1:5000", false, &SocketHandler{})
 	if err != nil {
 		panic(err)
 	}
