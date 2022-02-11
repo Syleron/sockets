@@ -56,7 +56,7 @@ func Dial(addr string, secure bool, handler DataHandler) (*Client, error) {
 	return client, nil
 }
 
-func (c *Client) New(addr, secure bool) error {
+func (c *Client) New(addr string, secure bool) error {
 	var err error
 	var sc string
 	if secure {
