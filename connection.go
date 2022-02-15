@@ -34,6 +34,14 @@ func NewConnection() *Connection {
 	}
 }
 
+func (c *Connection) SetData(key string, value interface{}) {
+	c.Data[key] = value
+}
+
+func (c *Connection) GetData(key string) interface{} {
+	return c.Data[key]
+}
+
 func (c *Connection) AddSession(session *Session) {
 	c.Session = session
 }
