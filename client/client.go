@@ -24,6 +24,7 @@ SOFTWARE.
 package client
 
 import (
+	"crypto/tls"
 	"github.com/gorilla/websocket"
 	"github.com/syleron/sockets/common"
 	"net/url"
@@ -46,7 +47,12 @@ type Client struct {
 	sync.Mutex
 }
 
-func Dial(addr string, secure bool, handler DataHandler) (*Client, error) {
+type Secure struct {
+	EnableTLS bool
+	TLSConfig *tls.Config
+}
+
+func Dial(addr string, secure *Secure, handler DataHandler) (*Client, error) {
 	client := &Client{}
 	client.emitChan = make(chan *common.Message)
 	client.handler = handler
@@ -56,16 +62,20 @@ func Dial(addr string, secure bool, handler DataHandler) (*Client, error) {
 	return client, nil
 }
 
-func (c *Client) New(addr string, secure bool) error {
+func (c *Client) New(addr string, secure *Secure) error {
 	var err error
 	var sc string
-	if secure {
+
+	s := websocket.DefaultDialer
+	if secure.EnableTLS {
+		s.TLSClientConfig = secure.TLSConfig
 		sc = "wss"
 	} else {
 		sc = "ws"
 	}
+
 	u := url.URL{Scheme: sc, Host: addr, Path: "/ws"}
-	c.ws, _, err = websocket.DefaultDialer.Dial(u.String(), nil)
+	c.ws, _, err = s.Dial(u.String(), nil)
 	if err != nil {
 		return err
 	}
