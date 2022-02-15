@@ -11,8 +11,6 @@
 
 Sockets is a websocket framework based on gorilla/websocket providing a simple way to write real-time apps.
 
-ATTENTION: As of the latest release, I've removed JWT authentication as I believe this is best handled by specific project implementations rather than this project.
-
 ### Features
 
 * Room & Room Channel support.
@@ -52,14 +50,8 @@ ATTENTION: As of the latest release, I've removed JWT authentication as I believ
     }
 
     func main() {
-        // Generate JWT token
-        jwt, err := common.GenerateJWT("steve", "SuperSecretKey")
-        if err != nil {
-            panic(err)
-        }
-
         // Create our websocket client
-        client, err := sktsClient.Dial("127.0.0.1:5000", jwt, false, &SocketHandler{})
+        client, err := sktsClient.Dial("127.0.0.1:5000", false, &SocketHandler{})
         if err != nil {
             panic(err)
         }
@@ -116,7 +108,7 @@ ATTENTION: As of the latest release, I've removed JWT authentication as I believ
 
     func main () {
         // Setup socket server
-        sockets := sockets.New("SuperSecretKey", &SocketHandler{})
+        sockets := sockets.New(&SocketHandler{})
 
         // Register our events
         sockets.HandleEvent("ping", ping)

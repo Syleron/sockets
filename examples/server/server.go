@@ -1,7 +1,7 @@
 /**
 MIT License
 
-Copyright (c) 2018-2019 Andrew Zak <andrew@linux.com>
+Copyright (c) 2018-2022 Andrew Zak <andrew@linux.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,14 +25,14 @@ package main
 
 import (
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"github.com/syleron/sockets"
 	"github.com/syleron/sockets/common"
-	"github.com/gin-gonic/gin"
 )
 
 var ws *sockets.Sockets
 
-type SocketHandler struct {}
+type SocketHandler struct{}
 
 func (h *SocketHandler) NewConnection(ctx *sockets.Context) {
 	// Do something when a new connection comes in
@@ -44,7 +44,7 @@ func (h *SocketHandler) ConnectionClosed(ctx *sockets.Context) {
 	fmt.Println("> Connection closed")
 }
 
-func main () {
+func main() {
 	// Setup socket server
 	ws = sockets.New(&SocketHandler{})
 

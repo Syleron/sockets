@@ -7,9 +7,21 @@ import (
 )
 
 type Session struct {
-	Username string
+	Username    string
 	connections map[string]*Connection
 	sync.Mutex
+}
+
+func (s *Session) HasSession() bool {
+	return s.Username != "" && len(s.connections) > 0
+}
+
+func (s *Session) Emit(msg *common.Message) {
+	for _, connection := range s.connections {
+		if err := connection.Emit(msg); err != nil {
+			continue
+		}
+	}
 }
 
 func (s *Session) addConnection(newConnection *Connection) {
@@ -18,8 +30,6 @@ func (s *Session) addConnection(newConnection *Connection) {
 	if s.connections == nil {
 		s.connections = make(map[string]*Connection)
 	}
-	// Start our pong handler
-	//go newConnection.pongHandler()
 	// Append our connection
 	s.connections[newConnection.UUID] = newConnection
 }
@@ -29,16 +39,6 @@ func (s *Session) removeConnection(uuid string) {
 	// Remove our connection from our connections array
 	delete(s.connections, uuid)
 	s.Unlock()
-}
-
-func (s *Session) Emit(msg *common.Message) {
-	// We are sending this to a single user
-	// but on multiple connections.
-	for _, connection := range s.connections {
-		if err := connection.Emit(msg); err != nil {
-			continue
-		}
-	}
 }
 
 func (s *Session) getConnection(conn *websocket.Conn) (string, *Connection) {

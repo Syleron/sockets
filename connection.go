@@ -8,10 +8,11 @@ import (
 )
 
 type Connection struct {
-	UUID string
+	UUID   string
 	Conn   *websocket.Conn
 	Status bool  `json:"status"`
 	Room   *Room `json:"room"`
+	Data   map[string]interface{}
 	*Session
 }
 
@@ -20,7 +21,7 @@ func NewConnection() *Connection {
 	uuid := xid.New().String()
 
 	return &Connection{
-		UUID:   uuid,
+		UUID: uuid,
 		Room: &Room{
 			Name:    "",
 			Channel: "",
