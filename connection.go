@@ -53,6 +53,7 @@ func NewConnection() *Connection {
 			connections: nil,
 			Mutex:       sync.Mutex{},
 		},
+		Data: map[string]interface{}{},
 	}
 }
 
