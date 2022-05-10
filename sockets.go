@@ -89,6 +89,7 @@ func New(handler DataHandler) *Sockets {
 	// Setup the sockets object
 	sockets := &Sockets{}
 	sockets.Connections = make(map[string]*Connection)
+	sockets.Sessions = make(map[string]*Session)
 	sockets.broadcastChan = make(chan Broadcast)
 	sockets.interrupt = make(chan os.Signal, 1)
 	signal.Notify(sockets.interrupt, os.Interrupt)
