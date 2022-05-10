@@ -248,37 +248,6 @@ func (s *Sockets) GetUserRoom(username, uuid string) (string, error) {
 	return "", errors.New("unable to find room for user " + username + " with UUID " + uuid)
 }
 
-func (s *Sockets) NewUserSession(username string, conn *Connection) {
-	newSession := &Session{
-		Username:    username,
-		connections: make(map[string]*Connection),
-	}
-	// Add our connection to our session
-	newSession.connections[conn.UUID] = conn
-	// Add our session to our connection
-	conn.Session = newSession
-}
-
-//func (s *Sockets) GetUserRoomChannel(username, uuid string) (string, error) {
-//	if client := s.Clients[username]; client != nil {
-//		if conn := client.connections[uuid]; conn != nil {
-//			return conn.Room.Channel, nil
-//		}
-//	}
-//	return "", errors.New("unable to find room channel for user " + username + " with UUID " + uuid)
-//}
-//
-//func (s *Sockets) UserInARoom(username, uuid string) bool {
-//	if client := s.Clients[username]; client != nil {
-//		if conn := client.connections[uuid]; conn != nil {
-//			if conn.Room.Name == "" {
-//				return false
-//			}
-//		}
-//	}
-//	return true
-//}
-
 func (s *Sockets) LeaveRoom(uuid string) {
 	s.Lock()
 	defer s.Unlock()
@@ -346,4 +315,45 @@ func (s *Sockets) removeConnection(uuid string) {
 	s.Lock()
 	defer s.Unlock()
 	delete(s.Connections, uuid)
+}
+
+func (s *Sockets) AddSession(username string, conn *Connection) error {
+	s.Lock()
+	defer s.Unlock()
+	// Do we already have a session?
+	if s.CheckIfSessionExists(username) {
+		return errors.New("session object already exists")
+	}
+	// Define our new session
+	newSession := &Session{
+		Username:    username,
+		connections: make(map[string]*Connection),
+	}
+	// Add our connection to our session
+	newSession.connections[conn.UUID] = conn
+	// Add our session reference to our connection
+	conn.addSession(newSession)
+	// success
+	return nil
+}
+
+func (s *Sockets) UpdateSession(username string, conn *Connection) error {
+	s.Lock()
+	defer s.Unlock()
+	if !s.CheckIfSessionExists(username) {
+		return errors.New("session does not exist for this user")
+	}
+	// Get our session object
+	session := s.Sessions[username]
+	// Add our connection to our session
+	session.addConnection(conn)
+	// success
+	return nil
+}
+
+func (s *Sockets) DeleteSession(username string) error {
+	s.Lock()
+	defer s.Unlock()
+	delete(s.Sessions, username)
+	return nil
 }

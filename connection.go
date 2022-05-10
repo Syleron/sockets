@@ -57,6 +57,15 @@ func NewConnection() *Connection {
 	}
 }
 
+func (c *Connection) Emit(msg interface{}) error {
+	// We are sending this to a single user
+	// but on multiple connections.
+	if err := c.Conn.WriteJSON(msg); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *Connection) SetData(key string, value interface{}) {
 	c.Data[key] = value
 }
@@ -65,12 +74,12 @@ func (c *Connection) GetData(key string) interface{} {
 	return c.Data[key]
 }
 
-func (c *Connection) AddSession(session *Session) {
-	c.Session = session
+func (c *Connection) ClearSession() {
+	c.Session = nil
 }
 
-func (c *Connection) ClearSession(session *Session) {
-	c.Session = nil
+func (c *Connection) addSession(session *Session) {
+	c.Session = session
 }
 
 func (c *Connection) pongHandler() {
@@ -96,13 +105,4 @@ func (c *Connection) pongHandler() {
 			}
 		}
 	}
-}
-
-func (c *Connection) Emit(msg interface{}) error {
-	// We are sending this to a single user
-	// but on multiple connections.
-	if err := c.Conn.WriteJSON(msg); err != nil {
-		return err
-	}
-	return nil
 }

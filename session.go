@@ -23,7 +23,6 @@
 package sockets
 
 import (
-	"github.com/gorilla/websocket"
 	"github.com/syleron/sockets/common"
 	"sync"
 )
@@ -61,13 +60,4 @@ func (s *Session) removeConnection(uuid string) {
 	// Remove our connection from our connections array
 	delete(s.connections, uuid)
 	s.Unlock()
-}
-
-func (s *Session) getConnection(conn *websocket.Conn) (string, *Connection) {
-	for uuid, c := range s.connections {
-		if c.Conn == conn {
-			return uuid, c
-		}
-	}
-	return "", nil
 }
