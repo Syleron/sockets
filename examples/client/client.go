@@ -48,7 +48,12 @@ func (h *SocketHandler) NewClientError(err error) {
 
 func main() {
 	// Create our websocket client
-	client, err := sktsClient.Dial("127.0.0.1:5000", false, &SocketHandler{})
+	client, err := sktsClient.Dial("127.0.0.1:9443", &sktsClient.Secure{
+		EnableTLS: false,
+		TLSConfig: nil,
+	}, &SocketHandler{})
+
+	// Handle any errors
 	if err != nil {
 		panic(err)
 	}

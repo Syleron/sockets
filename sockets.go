@@ -234,7 +234,7 @@ func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, da
 }
 
 func (s *Sockets) CheckIfSessionExists(username string) bool {
-	if s.Sessions[username] != (&Session{}) {
+	if s.Sessions[username] != nil {
 		return true
 	}
 	return false
@@ -296,20 +296,14 @@ func (s *Sockets) closeWS(conn *Connection) {
 		if s.CheckIfSessionExists(conn.Username) {
 			// Check how many connections we have
 			if len(s.Sessions[conn.Username].connections) == 1 {
-				// Delete o
+				// Delete our session
 				if err := s.DeleteSession(conn.Username); err != nil {
-
+					// TODO: Log?
 				}
 			}
 		}
 		// Remove our connection from the user connection list.
 		s.removeConnection(conn.UUID)
-		// TODO: Clear up any sessions
-		// Determine whether we need to remove the user from the online list
-		//if len(client.connections) <= 0 {
-		//	// Remove from local online list
-		//	s.removeClient(client)
-		//}
 	}
 }
 

@@ -64,14 +64,18 @@ func main() {
 	fmt.Println("> Sockets server started. Waiting for connections..")
 
 	// Start server
-	router.Run(":5000")
+	if err := router.Run(":9443"); err != nil {
+		panic(err)
+	}
 }
 
 func ping(msg *common.Message, ctx *sockets.Context) {
 	fmt.Println("> Recieved WSKT 'ping' responding with 'pong'")
 
 	// Store our connection for a particular user
-	ws.NewUserSession("user1", ctx.Connection)
+	if err := ws.AddSession("user1", ctx.Connection); err != nil {
+		panic(err)
+	}
 
 	ctx.Emit(&common.Message{
 		EventName: "pong",
