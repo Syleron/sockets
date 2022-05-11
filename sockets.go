@@ -338,6 +338,8 @@ func (s *Sockets) AddSession(username string, conn *Connection) error {
 	newSession.connections[conn.UUID] = conn
 	// Add our session reference to our connection
 	conn.addSession(newSession)
+	// Add our session to our sockets store
+	s.Sessions[username] = newSession
 	// success
 	return nil
 }
