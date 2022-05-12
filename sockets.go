@@ -104,11 +104,14 @@ func (s *Sockets) Close() {
 	s.Close()
 }
 
-func (s *Sockets) HandleEvent(pattern string, handler EventFunc) {
+func (s *Sockets) HandleEvent(pattern string, handler EventFunc, protected bool) {
 	if events == nil {
-		events = make(map[string]EventFunc)
+		events = make(map[string]*Event)
 	}
-	events[pattern] = handler
+	events[pattern] = &Event{
+		EventFunc: handler,
+		Protected: protected,
+	}
 }
 
 func (s *Sockets) InterruptHandler() {

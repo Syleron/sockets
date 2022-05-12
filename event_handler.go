@@ -22,15 +22,31 @@
 
 package sockets
 
-import "github.com/syleron/sockets/common"
+import (
+	"fmt"
 
-var events map[string]EventFunc
+	"github.com/syleron/sockets/common"
+)
+
+var events map[string]*Event
+
+type Event struct {
+	Protected bool
+	EventFunc EventFunc
+}
 
 type EventFunc func(msg *common.Message, ctx *Context)
 
 func EventHandler(msg *common.Message, ctx *Context) {
 	event := events[msg.EventName]
 	if event != nil {
-		event(msg, ctx)
+		// Check to see if we are protected
+		if event.Protected && ctx.HasSession() {
+			event.EventFunc(msg, ctx)
+		} else {
+			fmt.Print("protected " + msg.EventName + " event called, however, no session has been set. Handler dropped. " + ctx.UUID)
+		}
+	} else {
+		fmt.Print("event " + msg.EventName + " does not have an event handler")
 	}
 }
