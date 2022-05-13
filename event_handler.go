@@ -41,10 +41,14 @@ func EventHandler(msg *common.Message, ctx *Context) {
 	event := events[msg.EventName]
 	if event != nil {
 		// Check to see if we are protected
-		if event.Protected && ctx.HasSession() {
-			event.EventFunc(msg, ctx)
+		if event.Protected {
+			if ctx.HasSession() {
+				event.EventFunc(msg, ctx)
+			} else {
+				fmt.Print("protected " + msg.EventName + " event called, however, no session has been set. Handler dropped. " + ctx.UUID)
+			}
 		} else {
-			fmt.Print("protected " + msg.EventName + " event called, however, no session has been set. Handler dropped. " + ctx.UUID)
+			event.EventFunc(msg, ctx)
 		}
 	} else {
 		fmt.Print("event " + msg.EventName + " does not have an event handler")
