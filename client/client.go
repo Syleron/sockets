@@ -40,6 +40,7 @@ type DataHandler interface {
 }
 
 type Client struct {
+	Status   bool `json:"status"`
 	ws       *websocket.Conn
 	emitChan chan *common.Message
 	handler  DataHandler
@@ -78,6 +79,8 @@ func (c *Client) New(addr string, secure *Secure) error {
 	if err != nil {
 		return err
 	}
+	// Set our connection status
+	c.Status = true
 	// Call interface function to signify a new connection
 	c.handler.NewConnection()
 	// Handle incoming requests
@@ -119,6 +122,8 @@ func (c *Client) Emit(msg *common.Message) {
 }
 
 func (c *Client) Close() {
+	// Set our connection status
+	c.Status = false
 	// Close our connection
 	c.ws.Close()
 	// Inform our handler
@@ -130,4 +135,8 @@ func (c *Client) HandleEvent(pattern string, handler EventFunc) {
 		events = make(map[string]EventFunc)
 	}
 	events[pattern] = handler
+}
+
+func (c *Client) IsConnected() bool {
+	return c.Status
 }

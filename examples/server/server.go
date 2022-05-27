@@ -48,7 +48,7 @@ func main() {
 	ws = sockets.New(&SocketHandler{})
 
 	// Register our events
-	ws.HandleEvent("ping", ping)
+	ws.HandleEvent("ping", ping, false)
 
 	// Set our gin release mode
 	gin.SetMode(gin.ReleaseMode)

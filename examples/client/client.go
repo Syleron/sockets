@@ -72,7 +72,7 @@ func main() {
 	count := 0
 	for range time.Tick(5 * time.Second) {
 		if count < 1 {
-			//client.Emit(payload)
+			client.Emit(payload)
 			count++
 		} else {
 			return
