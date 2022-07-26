@@ -3,8 +3,8 @@ module github.com/syleron/sockets
 go 1.18
 
 require (
-	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/gin-gonic/gin v1.7.7
+	github.com/golang-jwt/jwt/v4 v4.4.2
 	github.com/gorilla/websocket v1.5.0
 	github.com/rs/xid v1.4.0
 )
