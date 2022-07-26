@@ -24,7 +24,7 @@ package common
 
 import (
 	"errors"
-	"github.com/golang-jwt/jwt/v4"
+	"github.com/golang-jwt/jwt"
 	"log"
 	"time"
 )
