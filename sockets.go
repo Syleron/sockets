@@ -135,7 +135,7 @@ func (s *Sockets) InterruptHandler() {
 	}
 }
 
-func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error {
+func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request, setReadLimit int64) error {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return err
@@ -162,7 +162,11 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 	s.handler.NewConnection(context)
 
 	// Handle PONG and connection timeouts
-	ws.SetReadLimit(maxMessageSize)
+	if setReadLimit != 0 {
+		ws.SetReadLimit(setReadLimit)
+	} else {
+		ws.SetReadLimit(maxMessageSize)
+	}
 	ws.SetReadDeadline(time.Now().Add(pongWait))
 	ws.SetPongHandler(func(string) error {
 		ws.SetReadDeadline(time.Now().Add(pongWait))
