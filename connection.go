@@ -36,9 +36,10 @@ type Connection struct {
 	Room   *Room `json:"room"`
 	Data   map[string]interface{}
 	*Session
+	config *Config
 }
 
-func NewConnection() *Connection {
+func NewConnection(conf *Config) *Connection {
 	// Generate an unique ID
 	uuid := xid.New().String()
 
@@ -53,7 +54,8 @@ func NewConnection() *Connection {
 			connections: nil,
 			Mutex:       sync.Mutex{},
 		},
-		Data: map[string]interface{}{},
+		Data:   map[string]interface{}{},
+		config: conf,
 	}
 }
 
@@ -83,7 +85,7 @@ func (c *Connection) addSession(session *Session) {
 }
 
 func (c *Connection) pongHandler() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(c.config.PingPeriod)
 
 	defer func() {
 		// Set our connection state

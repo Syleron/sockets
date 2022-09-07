@@ -41,26 +41,13 @@ type DataHandler interface {
 	ConnectionClosed(ctx *Context)
 }
 
-const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
-	// Maximum message size allowed from peer.
-	maxMessageSize = 2560
-)
-
 type Sockets struct {
 	Connections   map[string]*Connection
 	Sessions      map[string]*Session
 	broadcastChan chan Broadcast
 	interrupt     chan os.Signal
-	handler       DataHandler
+	handler DataHandler
+	config  *Config
 	sync.Mutex
 }
 
@@ -79,15 +66,43 @@ type Room struct {
 	Channel string `json:"channel"`
 }
 
+type Config struct {
+	// Time allowed to write a message to the peer.
+	WriteWait time.Duration
+	// Time allowed to read the next pong message from the peer.
+	PongWait time.Duration
+	// Send pings to peer with this period. Must be less than pongWait.
+	PingPeriod time.Duration
+	// Maximum message size allowed from peer.
+	ReadLimitSize int64
+}
+
+func newConfig(c *Config) *Config {
+	if c.WriteWait == 0 {
+		c.WriteWait = time.Second * 10
+	}
+	if c.PongWait == 0 {
+		c.PongWait = time.Second * 60
+	}
+	if c.PingPeriod == 0 {
+		c.PingPeriod = (c.PongWait * 9) / 10
+	}
+	if c.ReadLimitSize == 0 {
+		c.ReadLimitSize = 2560
+	}
+	return c
+}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
 }
 
-func New(handler DataHandler) *Sockets {
+func New(handler DataHandler, c *Config) *Sockets {
 	// Setup the sockets object
 	sockets := &Sockets{}
+	sockets.config = newConfig(c)
 	sockets.Connections = make(map[string]*Connection)
 	sockets.Sessions = make(map[string]*Session)
 	sockets.broadcastChan = make(chan Broadcast)
@@ -96,6 +111,7 @@ func New(handler DataHandler) *Sockets {
 	sockets.handler = handler
 	// OS interrupt handling
 	go sockets.InterruptHandler()
+
 	// return our object
 	return sockets
 }
@@ -125,7 +141,7 @@ func (s *Sockets) InterruptHandler() {
 				if c.Conn == nil {
 					continue
 				}
-				c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+				c.Conn.SetWriteDeadline(time.Now().Add(s.config.WriteWait))
 				if err := c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
 					return
 				}
@@ -135,13 +151,13 @@ func (s *Sockets) InterruptHandler() {
 	}
 }
 
-func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request, setReadLimit int64) error {
+func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return err
 	}
 
-	newConnection := NewConnection()
+	newConnection := NewConnection(&)
 
 	// Set our Connection
 	newConnection.Conn = ws
@@ -162,14 +178,10 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request, setRe
 	s.handler.NewConnection(context)
 
 	// Handle PONG and connection timeouts
-	if setReadLimit != 0 {
-		ws.SetReadLimit(setReadLimit)
-	} else {
-		ws.SetReadLimit(maxMessageSize)
-	}
-	ws.SetReadDeadline(time.Now().Add(pongWait))
+	ws.SetReadLimit(s.config.ReadLimitSize)
+	ws.SetReadDeadline(time.Now().Add(s.config.PongWait))
 	ws.SetPongHandler(func(string) error {
-		ws.SetReadDeadline(time.Now().Add(pongWait))
+		ws.SetReadDeadline(time.Now().Add(s.config.PongWait))
 		return nil
 	})
 
