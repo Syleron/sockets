@@ -36,10 +36,9 @@ type Connection struct {
 	Room   *Room `json:"room"`
 	Data   map[string]interface{}
 	*Session
-	config *Config
 }
 
-func NewConnection(conf *Config) *Connection {
+func NewConnection() *Connection {
 	// Generate an unique ID
 	uuid := xid.New().String()
 
@@ -54,8 +53,7 @@ func NewConnection(conf *Config) *Connection {
 			connections: nil,
 			Mutex:       sync.Mutex{},
 		},
-		Data:   map[string]interface{}{},
-		config: conf,
+		Data: map[string]interface{}{},
 	}
 }
 
