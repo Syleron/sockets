@@ -34,6 +34,11 @@ import (
 	"time"
 )
 
+var WriteWait = time.Second * 10
+var PongWait = time.Second * 60
+var PingPeriod = (PongWait * 9) / 10
+var ReadLimitSize = int64(2560)
+
 type DataHandler interface {
 	// NewConnection Client connected handler
 	NewConnection(ctx *Context)
@@ -77,20 +82,19 @@ type Config struct {
 	ReadLimitSize int64
 }
 
-func newConfig(c *Config) *Config {
-	if c.WriteWait == 0 {
-		c.WriteWait = time.Second * 10
+func UpdateGlobals(c *Config) {
+	if c.WriteWait != 0 {
+		WriteWait = c.WriteWait
 	}
-	if c.PongWait == 0 {
-		c.PongWait = time.Second * 60
+	if c.PongWait != 0 {
+		PongWait = c.PongWait
 	}
-	if c.PingPeriod == 0 {
-		c.PingPeriod = (c.PongWait * 9) / 10
+	if c.PingPeriod != 0 {
+		PingPeriod = c.PingPeriod
 	}
-	if c.ReadLimitSize == 0 {
-		c.ReadLimitSize = 2560
+	if c.ReadLimitSize != 0 {
+		ReadLimitSize = c.ReadLimitSize
 	}
-	return c
 }
 
 var upgrader = websocket.Upgrader{
@@ -102,7 +106,7 @@ var upgrader = websocket.Upgrader{
 func New(handler DataHandler, c *Config) *Sockets {
 	// Setup the sockets object
 	sockets := &Sockets{}
-	sockets.config = newConfig(c)
+	UpdateGlobals(c)
 	sockets.Connections = make(map[string]*Connection)
 	sockets.Sessions = make(map[string]*Session)
 	sockets.broadcastChan = make(chan Broadcast)
@@ -141,7 +145,7 @@ func (s *Sockets) InterruptHandler() {
 				if c.Conn == nil {
 					continue
 				}
-				c.Conn.SetWriteDeadline(time.Now().Add(s.config.WriteWait))
+				c.Conn.SetWriteDeadline(time.Now().Add(WriteWait))
 				if err := c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
 					return
 				}
@@ -178,10 +182,10 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 	s.handler.NewConnection(context)
 
 	// Handle PONG and connection timeouts
-	ws.SetReadLimit(s.config.ReadLimitSize)
-	ws.SetReadDeadline(time.Now().Add(s.config.PongWait))
+	ws.SetReadLimit(ReadLimitSize)
+	ws.SetReadDeadline(time.Now().Add(PongWait))
 	ws.SetPongHandler(func(string) error {
-		ws.SetReadDeadline(time.Now().Add(s.config.PongWait))
+		ws.SetReadDeadline(time.Now().Add(PongWait))
 		return nil
 	})
 
