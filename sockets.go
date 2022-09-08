@@ -34,10 +34,12 @@ import (
 	"time"
 )
 
-var WriteWait = time.Second * 10
-var PongWait = time.Second * 60
-var PingPeriod = (PongWait * 9) / 10
-var ReadLimitSize = int64(2560)
+var (
+	WriteWait     = time.Second * 10
+	PongWait      = time.Second * 60
+	PingPeriod    = (PongWait * 9) / 10
+	ReadLimitSize = int64(2560)
+)
 
 type DataHandler interface {
 	// NewConnection Client connected handler
