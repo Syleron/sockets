@@ -46,8 +46,8 @@ type Sockets struct {
 	Sessions      map[string]*Session
 	broadcastChan chan Broadcast
 	interrupt     chan os.Signal
-	handler DataHandler
-	config  *Config
+	handler       DataHandler
+	config        *Config
 	sync.Mutex
 }
 
@@ -157,7 +157,7 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 
-	newConnection := NewConnection(&)
+	newConnection := NewConnection(s.config)
 
 	// Set our Connection
 	newConnection.Conn = ws
