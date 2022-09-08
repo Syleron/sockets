@@ -34,26 +34,19 @@ import (
 	"time"
 )
 
+var (
+	WriteWait     = time.Second * 10
+	PongWait      = time.Second * 60
+	PingPeriod    = (PongWait * 9) / 10
+	ReadLimitSize = int64(2560)
+)
+
 type DataHandler interface {
 	// NewConnection Client connected handler
 	NewConnection(ctx *Context)
 	// ConnectionClosed Client disconnect handler
 	ConnectionClosed(ctx *Context)
 }
-
-const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
-	// Maximum message size allowed from peer.
-	maxMessageSize = 2560
-)
 
 type Sockets struct {
 	Connections   map[string]*Connection
@@ -79,15 +72,42 @@ type Room struct {
 	Channel string `json:"channel"`
 }
 
+type Config struct {
+	// Time allowed to write a message to the peer.
+	WriteWait time.Duration
+	// Time allowed to read the next pong message from the peer.
+	PongWait time.Duration
+	// Send pings to peer with this period. Must be less than pongWait.
+	PingPeriod time.Duration
+	// Maximum message size allowed from peer.
+	ReadLimitSize int64
+}
+
+func UpdateGlobals(c *Config) {
+	if c.WriteWait != 0 {
+		WriteWait = c.WriteWait
+	}
+	if c.PongWait != 0 {
+		PongWait = c.PongWait
+	}
+	if c.PingPeriod != 0 {
+		PingPeriod = c.PingPeriod
+	}
+	if c.ReadLimitSize != 0 {
+		ReadLimitSize = c.ReadLimitSize
+	}
+}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
 }
 
-func New(handler DataHandler) *Sockets {
+func New(handler DataHandler, c *Config) *Sockets {
 	// Setup the sockets object
 	sockets := &Sockets{}
+	UpdateGlobals(c)
 	sockets.Connections = make(map[string]*Connection)
 	sockets.Sessions = make(map[string]*Session)
 	sockets.broadcastChan = make(chan Broadcast)
@@ -96,6 +116,7 @@ func New(handler DataHandler) *Sockets {
 	sockets.handler = handler
 	// OS interrupt handling
 	go sockets.InterruptHandler()
+
 	// return our object
 	return sockets
 }
@@ -125,7 +146,7 @@ func (s *Sockets) InterruptHandler() {
 				if c.Conn == nil {
 					continue
 				}
-				c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+				c.Conn.SetWriteDeadline(time.Now().Add(WriteWait))
 				if err := c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
 					return
 				}
@@ -162,10 +183,10 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 	s.handler.NewConnection(context)
 
 	// Handle PONG and connection timeouts
-	ws.SetReadLimit(maxMessageSize)
-	ws.SetReadDeadline(time.Now().Add(pongWait))
+	ws.SetReadLimit(ReadLimitSize)
+	ws.SetReadDeadline(time.Now().Add(PongWait))
 	ws.SetPongHandler(func(string) error {
-		ws.SetReadDeadline(time.Now().Add(pongWait))
+		ws.SetReadDeadline(time.Now().Add(PongWait))
 		return nil
 	})
 

@@ -83,7 +83,7 @@ func (c *Connection) addSession(session *Session) {
 }
 
 func (c *Connection) pongHandler() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(PingPeriod)
 
 	defer func() {
 		// Set our connection state
