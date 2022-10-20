@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"github.com/syleron/sockets/common"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -156,7 +157,7 @@ func (s *Sockets) InterruptHandler() {
 	}
 }
 
-func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error {
+func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request, realIP string) error {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return err
@@ -166,7 +167,16 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request) error
 
 	// Set our Connection
 	newConnection.Conn = ws
-
+	//RealIP exists so that the users can set their own source ip. Sometimes when using cloud environments
+	//Your source address you wish to store might not be the source address that the connection is utilising.
+	if realIP == "" {
+		newConnection.RealIP = ws.RemoteAddr().String()
+	} else {
+		if net.ParseIP(realIP) == nil {
+			return fmt.Errorf("realIP is not a valid IP address")
+		}
+		newConnection.RealIP = realIP
+	}
 	// Set our connection status
 	newConnection.Status = true
 

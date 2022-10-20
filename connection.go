@@ -35,6 +35,8 @@ type Connection struct {
 	Status bool  `json:"status"`
 	Room   *Room `json:"room"`
 	Data   map[string]interface{}
+	//The connection Source address determined by the user.
+	RealIP string
 	*Session
 }
 
