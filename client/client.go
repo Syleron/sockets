@@ -52,17 +52,17 @@ type Secure struct {
 	TLSConfig *tls.Config
 }
 
-func Dial(addr string, secure *Secure, handler DataHandler) (*Client, error) {
+func Dial(addr string, path string, secure *Secure, handler DataHandler) (*Client, error) {
 	client := &Client{}
 	client.emitChan = make(chan *common.Message)
 	client.handler = handler
-	if err := client.New(addr, secure); err != nil {
+	if err := client.New(addr, path, secure); err != nil {
 		return nil, err
 	}
 	return client, nil
 }
 
-func (c *Client) New(addr string, secure *Secure) error {
+func (c *Client) New(addr string, path string, secure *Secure) error {
 	var err error
 	var sc string
 
@@ -74,7 +74,11 @@ func (c *Client) New(addr string, secure *Secure) error {
 		sc = "ws"
 	}
 
-	u := url.URL{Scheme: sc, Host: addr, Path: "/ws"}
+	if path == "" {
+		path = "/ws"
+	}
+
+	u := url.URL{Scheme: sc, Host: addr, Path: path}
 	c.ws, _, err = s.Dial(u.String(), nil)
 	if err != nil {
 		return err
