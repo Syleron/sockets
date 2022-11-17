@@ -37,6 +37,7 @@ type Connection struct {
 	Data   map[string]interface{}
 	//The connection Source address determined by the user.
 	RealIP string
+	sync.RWMutex
 	*Session
 }
 
@@ -69,10 +70,14 @@ func (c *Connection) Emit(msg interface{}) error {
 }
 
 func (c *Connection) SetData(key string, value interface{}) {
+	c.Lock()
+	defer c.Unlock()
 	c.Data[key] = value
 }
 
 func (c *Connection) GetData(key string) interface{} {
+	c.RLock()
+	defer c.RUnlock()
 	return c.Data[key]
 }
 
