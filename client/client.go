@@ -44,6 +44,7 @@ type Client struct {
 	ws       *websocket.Conn
 	emitChan chan *common.Message
 	handler  DataHandler
+	Data     map[string]interface{}
 	sync.Mutex
 }
 
@@ -143,4 +144,22 @@ func (c *Client) HandleEvent(pattern string, handler EventFunc) {
 
 func (c *Client) IsConnected() bool {
 	return c.Status
+}
+
+func (c *Client) setData(key string, value interface{}) {
+	c.Lock()
+	defer c.Unlock()
+	c.Data[key] = value
+}
+
+func (c *Client) GetData(key string) interface{} {
+	c.Lock()
+	defer c.Unlock()
+	return c.Data[key]
+}
+
+func (c *Client) DeleteData(key string) {
+	c.Lock()
+	defer c.Unlock()
+	delete(c.Data, key)
 }
