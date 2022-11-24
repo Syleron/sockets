@@ -146,7 +146,7 @@ func (c *Client) IsConnected() bool {
 	return c.Status
 }
 
-func (c *Client) setData(key string, value interface{}) {
+func (c *Client) SetData(key string, value interface{}) {
 	c.Lock()
 	defer c.Unlock()
 	c.Data[key] = value
