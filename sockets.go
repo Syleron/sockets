@@ -388,6 +388,8 @@ func (s *Sockets) UpdateSession(username string, conn *Connection) error {
 	session := s.Sessions[username]
 	// Add our connection to our session
 	session.addConnection(conn)
+	// Add our session to our connection
+	conn.addSession(session)
 	// success
 	return nil
 }
