@@ -24,8 +24,10 @@ package client
 
 import (
 	"crypto/tls"
+	"fmt"
 	"github.com/gorilla/websocket"
 	"github.com/syleron/sockets/common"
+	"net/http"
 	"net/url"
 	"sync"
 )
@@ -51,6 +53,9 @@ type Client struct {
 type Secure struct {
 	EnableTLS bool
 	TLSConfig *tls.Config
+	ProxyURL  string
+	ProxyUser string
+	ProxyPass string
 }
 
 func Dial(addr string, path string, secure *Secure, handler DataHandler) (*Client, error) {
@@ -73,6 +78,22 @@ func (c *Client) New(addr string, path string, secure *Secure) error {
 		sc = "wss"
 	} else {
 		sc = "ws"
+	}
+
+	// Configure the dialer with proxy if specified
+	if secure.ProxyURL != "" {
+		proxyURL, err := url.Parse(secure.ProxyURL)
+		if err != nil {
+			return fmt.Errorf("error parsing proxy URL: %v", err)
+		}
+		s.Proxy = http.ProxyURL(proxyURL)
+		// Optionally set the proxy authentication
+		if secure.ProxyUser != "" && secure.ProxyPass != "" {
+			s.Proxy = func(_ *http.Request) (*url.URL, error) {
+				proxyURL.User = url.UserPassword(secure.ProxyUser, secure.ProxyPass)
+				return proxyURL, nil
+			}
+		}
 	}
 
 	if path == "" {
