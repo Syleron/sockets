@@ -1,11 +1,11 @@
 // MIT License
 //
-// Copyright (c) 2022 Andrew Zak <andrew@linux.com>
+// Copyright (c) 2018-2024 Andrew Zak <andrew@linux.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
 // in the Software without restriction, including without limitation the rights
-/// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
 //
@@ -22,8 +22,19 @@
 
 package sockets
 
-func check(err error) {
-	if err != nil {
-		panic(err)
+import (
+	"github.com/gorilla/websocket"
+	"log"
+	"net"
+)
+
+func determineRealIP(ws *websocket.Conn, realIP string) string {
+	if realIP == "" {
+		return ws.RemoteAddr().String()
 	}
+	if net.ParseIP(realIP) == nil {
+		log.Printf("Invalid realIP provided: %s", realIP)
+		return ws.RemoteAddr().String() // Fallback to the connection's remote address
+	}
+	return realIP
 }

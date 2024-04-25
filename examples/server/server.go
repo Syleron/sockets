@@ -27,6 +27,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/syleron/sockets"
 	"github.com/syleron/sockets/common"
+	"log"
+	"time"
 )
 
 var ws *sockets.Sockets
@@ -34,20 +36,27 @@ var ws *sockets.Sockets
 type SocketHandler struct{}
 
 func (h *SocketHandler) NewConnection(ctx *sockets.Context) {
-	// Do something when a new connection comes in
 	fmt.Println("> Connection established")
 }
 
 func (h *SocketHandler) ConnectionClosed(ctx *sockets.Context) {
-	// Do something when a connection is closed
 	fmt.Println("> Connection closed")
 }
 
-func main() {
-	// Setup socket server
-	ws = sockets.New(&SocketHandler{})
+func (h *SocketHandler) NewClientError(err error) {
+	log.Printf("Error: %v", err)
+}
 
-	// Register our events
+func main() {
+	config := &sockets.Config{
+		WriteWait:     10 * time.Second,
+		PongWait:      60 * time.Second,
+		PingPeriod:    54 * time.Second, // 90% of PongWait
+		ReadLimitSize: 512,
+	}
+	// Setup socket server with proper configuration
+	ws = sockets.New(&SocketHandler{}, config)
+
 	ws.HandleEvent("ping", ping, false)
 
 	// Set our gin release mode
@@ -58,10 +67,12 @@ func main() {
 
 	// Setup websockets
 	router.GET("/ws", func(c *gin.Context) {
-		ws.HandleConnection(c.Writer, c.Request)
+		if err := ws.HandleConnection(c.Writer, c.Request, ""); err != nil {
+			return
+		}
 	})
 
-	fmt.Println("> Sockets server started. Waiting for connections..")
+	fmt.Println("> Sockets server started. Waiting for connections...")
 
 	// Start server
 	if err := router.Run(":9443"); err != nil {
@@ -70,11 +81,11 @@ func main() {
 }
 
 func ping(msg *common.Message, ctx *sockets.Context) {
-	fmt.Println("> Recieved WSKT 'ping' responding with 'pong'")
+	fmt.Println("> Received WS 'ping', responding with 'pong'")
 
 	// Store our connection for a particular user
 	if err := ws.AddSession("user1", ctx.Connection); err != nil {
-		panic(err)
+		return
 	}
 
 	ctx.Emit(&common.Message{

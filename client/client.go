@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2018-2022 Andrew Zak <andrew@linux.com>
+// Copyright (c) 2018-2024 Andrew Zak <andrew@linux.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -24,9 +24,11 @@ package client
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"github.com/syleron/sockets/common"
+	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -35,8 +37,10 @@ import (
 type DataHandler interface {
 	// NewConnection Client connected handler
 	NewConnection()
+
 	// ConnectionClosed Client disconnect handler
 	ConnectionClosed()
+
 	// NewClientError Client error handler
 	NewClientError(err error)
 }
@@ -58,41 +62,34 @@ type Secure struct {
 	ProxyPass string
 }
 
-func Dial(addr string, path string, secure *Secure, handler DataHandler) (*Client, error) {
-	client := &Client{}
-	client.emitChan = make(chan *common.Message)
-	client.handler = handler
-	if err := client.New(addr, path, secure); err != nil {
-		return nil, err
+func Dial(addr, path string, secure *Secure, handler DataHandler) (*Client, error) {
+	if handler == nil {
+		return nil, errors.New("data handler must not be nil")
 	}
+
+	client := &Client{
+		emitChan: make(chan *common.Message),
+		handler:  handler,
+		Data:     make(map[string]interface{}),
+	}
+
+	if err := client.connect(addr, path, secure); err != nil {
+		return nil, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
 	return client, nil
 }
 
-func (c *Client) New(addr string, path string, secure *Secure) error {
-	var err error
-	var sc string
+func (c *Client) connect(addr, path string, secure *Secure) error {
+	dialer := websocket.DefaultDialer
+	scheme := "ws"
 
-	s := websocket.DefaultDialer
-	if secure.EnableTLS {
-		s.TLSClientConfig = secure.TLSConfig
-		sc = "wss"
-	} else {
-		sc = "ws"
-	}
-
-	// Configure the dialer with proxy if specified
-	if secure.ProxyURL != "" {
-		proxyURL, err := url.Parse(secure.ProxyURL)
-		if err != nil {
-			return fmt.Errorf("error parsing proxy URL: %v", err)
+	if secure != nil {
+		if err := configureDialer(dialer, secure); err != nil {
+			return err
 		}
-		s.Proxy = http.ProxyURL(proxyURL)
-		// Optionally set the proxy authentication
-		if secure.ProxyUser != "" && secure.ProxyPass != "" {
-			s.Proxy = func(_ *http.Request) (*url.URL, error) {
-				proxyURL.User = url.UserPassword(secure.ProxyUser, secure.ProxyPass)
-				return proxyURL, nil
-			}
+		if secure.EnableTLS {
+			scheme = "wss"
 		}
 	}
 
@@ -100,30 +97,51 @@ func (c *Client) New(addr string, path string, secure *Secure) error {
 		path = "/ws"
 	}
 
-	u := url.URL{Scheme: sc, Host: addr, Path: path}
-	c.ws, _, err = s.Dial(u.String(), nil)
+	url := url.URL{Scheme: scheme, Host: addr, Path: path}
+	ws, _, err := dialer.Dial(url.String(), nil)
 	if err != nil {
 		return err
 	}
-	// Set our connection status
+
+	c.ws = ws
 	c.Status = true
-	// Call interface function to signify a new connection
 	c.handler.NewConnection()
-	// Handle incoming requests
+
 	go c.handleIncoming()
-	// Handle outgoing messages
 	go c.handleOutgoing()
+
+	return nil
+}
+
+func configureDialer(dialer *websocket.Dialer, secure *Secure) error {
+	if secure.EnableTLS {
+		dialer.TLSClientConfig = secure.TLSConfig
+	}
+
+	if secure.ProxyURL != "" {
+		proxyURL, err := url.Parse(secure.ProxyURL)
+		if err != nil {
+			return fmt.Errorf("invalid proxy URL: %w", err)
+		}
+		dialer.Proxy = http.ProxyURL(proxyURL)
+		if secure.ProxyUser != "" && secure.ProxyPass != "" {
+			proxyURL.User = url.UserPassword(secure.ProxyUser, secure.ProxyPass)
+		}
+	}
+
 	return nil
 }
 
 func (c *Client) handleIncoming() {
-	defer func() {
-		c.Close()
-	}()
+	defer c.Close() // Ensure connection is closed after function exits
 	for {
 		var msg common.Message
 		err := c.ws.ReadJSON(&msg)
 		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("Error: %v", err)
+				c.handler.NewClientError(err)
+			}
 			break
 		}
 		EventHandler(&msg)
@@ -131,14 +149,11 @@ func (c *Client) handleIncoming() {
 }
 
 func (c *Client) handleOutgoing() {
-	for {
-		select {
-		// Take our message from our message channel
-		case message := <-c.emitChan:
-			//c.ws.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := c.ws.WriteJSON(message); err != nil {
-				c.handler.NewClientError(err)
-			}
+	for message := range c.emitChan { // Will exit loop if channel is closed
+		if err := c.ws.WriteJSON(message); err != nil {
+			log.Printf("Failed to send message: %v", err)
+			c.handler.NewClientError(err)
+			continue
 		}
 	}
 }
@@ -148,11 +163,14 @@ func (c *Client) Emit(msg *common.Message) {
 }
 
 func (c *Client) Close() {
-	// Set our connection status
 	c.Status = false
-	// Close our connection
-	c.ws.Close()
-	// Inform our handler
+
+	if c.ws != nil {
+		if err := c.ws.Close(); err != nil {
+			log.Printf("Error closing WebSocket connection: %v", err)
+		}
+	}
+
 	c.handler.ConnectionClosed()
 }
 

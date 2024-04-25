@@ -26,6 +26,7 @@ import (
 	"fmt"
 	sktsClient "github.com/syleron/sockets/client"
 	"github.com/syleron/sockets/common"
+	"log"
 	"time"
 )
 
@@ -47,35 +48,40 @@ func (h *SocketHandler) NewClientError(err error) {
 }
 
 func main() {
-	// Create our websocket client
-	client, err := sktsClient.Dial("127.0.0.1:9443", &sktsClient.Secure{
-		EnableTLS: false,
-		TLSConfig: nil,
-	}, &SocketHandler{})
-
-	// Handle any errors
-	if err != nil {
-		panic(err)
+	// Setting up a secure configuration, even if TLS is not used.
+	secureConfig := &sktsClient.Secure{
+		EnableTLS: false, // Set to `true` and configure TLSConfig to use TLS.
 	}
 
-	// Define event handler
+	// Create our websocket client
+	client, err := sktsClient.Dial("127.0.0.1:9443", "/ws", secureConfig, &SocketHandler{})
+	if err != nil {
+		log.Fatalf("Failed to connect: %v", err)
+	}
+
+	// Register event handler for 'pong' messages
 	client.HandleEvent("pong", pong)
 
-	payload := &common.Message{
+	// Send our initial 'ping' request
+	client.Emit(&common.Message{
 		EventName: "ping",
-	}
+	})
 
-	// Send our initial request
-	client.Emit(payload)
+	// Example of sending messages at intervals
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
-	// Send another
 	count := 0
-	for range time.Tick(5 * time.Second) {
+	for range ticker.C {
 		if count < 1 {
-			client.Emit(payload)
+			fmt.Println("Sending 'ping' message")
+			client.Emit(&common.Message{
+				EventName: "ping",
+			})
 			count++
 		} else {
-			return
+			client.Close() // Properly close the connection
+			break
 		}
 	}
 }

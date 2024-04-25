@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2018-2022 Andrew Zak <andrew@linux.com>
+// Copyright (c) 2018-2024 Andrew Zak <andrew@linux.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -27,7 +27,7 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"github.com/syleron/sockets/common"
-	"net"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -35,16 +35,10 @@ import (
 	"time"
 )
 
-var (
-	WriteWait     = time.Second * 10
-	PongWait      = time.Second * 60
-	PingPeriod    = (PongWait * 9) / 10
-	ReadLimitSize = int64(2560)
-)
-
 type DataHandler interface {
 	// NewConnection Client connected handler
 	NewConnection(ctx *Context)
+
 	// ConnectionClosed Client disconnect handler
 	ConnectionClosed(ctx *Context)
 }
@@ -55,7 +49,8 @@ type Sockets struct {
 	broadcastChan chan Broadcast
 	interrupt     chan os.Signal
 	handler       DataHandler
-	sync.Mutex
+	config        *Config
+	sync.RWMutex
 }
 
 type Context struct {
@@ -73,296 +68,291 @@ type Room struct {
 	Channel string `json:"channel"`
 }
 
-type Config struct {
-	// Time allowed to write a message to the peer.
-	WriteWait time.Duration
-	// Time allowed to read the next pong message from the peer.
-	PongWait time.Duration
-	// Send pings to peer with this period. Must be less than pongWait.
-	PingPeriod time.Duration
-	// Maximum message size allowed from peer.
-	ReadLimitSize int64
-}
-
-func UpdateGlobals(c *Config) {
-	if c.WriteWait != 0 {
-		WriteWait = c.WriteWait
-	}
-	if c.PongWait != 0 {
-		PongWait = c.PongWait
-	}
-	if c.PingPeriod != 0 {
-		PingPeriod = c.PingPeriod
-	}
-	if c.ReadLimitSize != 0 {
-		ReadLimitSize = c.ReadLimitSize
-	}
-}
-
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
+		// TODO: Add a check for the origin of the request to prevent CSRF attacks.
 		return true
 	},
 }
 
 func New(handler DataHandler, c *Config) *Sockets {
-	// Setup the sockets object
-	sockets := &Sockets{}
-	UpdateGlobals(c)
-	sockets.Connections = make(map[string]*Connection)
-	sockets.Sessions = make(map[string]*Session)
-	sockets.broadcastChan = make(chan Broadcast)
-	sockets.interrupt = make(chan os.Signal, 1)
-	signal.Notify(sockets.interrupt, os.Interrupt)
-	sockets.handler = handler
-	// OS interrupt handling
-	go sockets.InterruptHandler()
+	c.MergeDefaults()
 
-	// return our object
+	sockets := &Sockets{
+		Connections:   make(map[string]*Connection),
+		Sessions:      make(map[string]*Session),
+		broadcastChan: make(chan Broadcast),
+		interrupt:     make(chan os.Signal, 1),
+		handler:       handler,
+		config:        c,
+	}
+
+	signal.Notify(sockets.interrupt, os.Interrupt)
+	go sockets.manageInterrupts()
+
 	return sockets
 }
 
 func (s *Sockets) Close() {
-	s.Close()
+	s.RLock()
+	defer s.RUnlock()
+
+	for _, c := range s.Connections {
+		if c.Conn != nil {
+			c.Conn.Close()
+		}
+	}
+
+	log.Println("All connections closed.")
+	os.Exit(0)
 }
 
 func (s *Sockets) HandleEvent(pattern string, handler EventFunc, protected bool) {
 	if events == nil {
 		events = make(map[string]*Event)
 	}
+
 	events[pattern] = &Event{
 		EventFunc: handler,
 		Protected: protected,
 	}
 }
 
-func (s *Sockets) InterruptHandler() {
-	for {
-		select {
-		// OS interrupt signal
-		case <-s.interrupt:
-			// Cleanly close the connection by sending a close message and then
-			// waiting (with timeout) for the server to close the connection.
-			for _, c := range s.Connections {
-				if c.Conn == nil {
-					continue
-				}
-				c.Conn.SetWriteDeadline(time.Now().Add(WriteWait))
-				if err := c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "")); err != nil {
-					return
-				}
-			}
-			os.Exit(0)
-		}
-	}
+func (s *Sockets) manageInterrupts() {
+	<-s.interrupt
+	log.Println("Received interrupt signal, shutting down...")
+	s.Close()
 }
 
 func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request, realIP string) error {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		return err
+		log.Printf("Failed to upgrade WebSocket: %v", err)
+		return fmt.Errorf("websocket upgrade error: %w", err)
 	}
 
 	newConnection := NewConnection()
-
-	// Set our Connection
 	newConnection.Conn = ws
-	//RealIP exists so that the users can set their own source ip. Sometimes when using cloud environments
-	//Your source address you wish to store might not be the source address that the connection is utilising.
-	if realIP == "" {
-		newConnection.RealIP = ws.RemoteAddr().String()
-	} else {
-		if net.ParseIP(realIP) == nil {
-			return fmt.Errorf("realIP is not a valid IP address")
-		}
-		newConnection.RealIP = realIP
-	}
-	// Set our connection status
+	newConnection.RealIP = determineRealIP(ws, realIP)
 	newConnection.Status = true
 
-	// Add our connection to our array
 	s.addConnection(newConnection.UUID, newConnection)
-
-	// Build our connection context
-	context := &Context{
-		Connection: newConnection,
-		UUID:       newConnection.UUID,
-	}
-
-	// Pass onto the interface function
+	context := &Context{Connection: newConnection, UUID: newConnection.UUID}
 	s.handler.NewConnection(context)
 
-	// Handle PONG and connection timeouts
-	ws.SetReadLimit(ReadLimitSize)
-	ws.SetReadDeadline(time.Now().Add(PongWait))
+	ws.SetReadLimit(s.config.ReadLimitSize)
+	ws.SetReadDeadline(time.Now().Add(s.config.PongWait))
 	ws.SetPongHandler(func(string) error {
-		ws.SetReadDeadline(time.Now().Add(PongWait))
+		ws.SetReadDeadline(time.Now().Add(s.config.PongWait))
 		return nil
 	})
 
-	// Handle our incoming message
+	return s.handleMessages(ws, context)
+}
+
+func (s *Sockets) handleMessages(ws *websocket.Conn, context *Context) error {
 	for {
 		var msg common.Message
-		err := ws.ReadJSON(&msg)
-		if err != nil {
-			// TODO
-			fmt.Println(err)
-			s.closeWS(newConnection)
-			break
+		if err := ws.ReadJSON(&msg); err != nil {
+			s.closeWS(context.Connection)
+			return fmt.Errorf("error reading JSON: %w", err)
 		}
 		EventHandler(&msg, context)
 	}
-	return nil
 }
 
-func (s *Sockets) Broadcast(event string, data, options interface{}) {
-	for _, c := range s.Connections {
-		if c.Conn == nil {
-			continue
-		}
-		var message common.Response
-		message.EventName = event
-		message.Data = data
-		if c.Conn == nil {
-			continue
-		}
-		if err := c.Emit(message); err != nil {
-			// TODO: Needs proper error reporting
-			continue
-		}
-	}
+func (s *Sockets) Broadcast(event string, data interface{}) {
+	s.broadcastHelper(func(c *Connection) bool {
+		return true // Always true, since we're broadcasting to all
+	}, event, data)
 }
 
 func (s *Sockets) BroadcastToRoom(roomName, event string, data interface{}, ctx *Context) {
-	for _, c := range s.Connections {
-		if c.Conn == nil || c.Room == nil {
-			continue
-		}
-		if c.Room.Name == roomName && c.UUID != ctx.UUID {
-			var message common.Response
-			message.EventName = event
-			message.Data = data
-			if err := c.Emit(message); err != nil {
-				continue
-			}
-		}
-	}
+	s.broadcastHelper(func(c *Connection) bool {
+		return c.Room != nil && c.Room.Name == roomName && c.UUID != ctx.UUID
+	}, event, data)
 }
 
 func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, data interface{}, ctx *Context) {
+	s.broadcastHelper(func(c *Connection) bool {
+		return c.Room != nil && c.Room.Name == roomName && c.Room.Channel == channelName && c.UUID != ctx.UUID
+	}, event, data)
+}
+
+func (s *Sockets) broadcastHelper(filter func(*Connection) bool, event string, data interface{}) {
+	s.RLock()
+	defer s.RUnlock()
+
 	for _, c := range s.Connections {
-		if c.Conn == nil || c.Room == nil {
+		if c.Conn == nil {
 			continue
 		}
-		if c.Room.Name == roomName &&
-			c.Room.Channel == channelName &&
-			c.UUID != ctx.UUID {
-			var message common.Response
-			message.EventName = event
-			message.Data = data
+
+		if filter(c) {
+			message := common.Response{
+				EventName: event,
+				Data:      data,
+			}
+
 			if err := c.Emit(message); err != nil {
+				log.Printf("Failed to emit message to UUID %s: %v", c.UUID, err)
 				continue
 			}
 		}
 	}
 }
 
-func (s *Sockets) CheckIfSessionExists(username string) bool {
-	if s.Sessions[username] != nil {
-		return true
-	}
-	return false
-}
-
 func (s *Sockets) GetUserRoom(username, uuid string) (string, error) {
-	if session := s.Sessions[username]; session != nil {
-		if conn := session.connections[uuid]; conn != nil {
+	if username == "" || uuid == "" {
+		return "", errors.New("invalid input: username or UUID is empty")
+	}
+
+	s.RLock()
+	defer s.RUnlock()
+
+	if session, ok := s.Sessions[username]; ok {
+		if conn, ok := session.connections[uuid]; ok && conn.Room != nil {
 			return conn.Room.Name, nil
 		}
 	}
-	return "", errors.New("unable to find room for user " + username + " with UUID " + uuid)
-}
 
-func (s *Sockets) LeaveRoom(uuid string) {
-	s.Lock()
-	defer s.Unlock()
-	if conn := s.Connections[uuid]; conn != nil {
-		conn.Room = &Room{}
-	}
+	return "", fmt.Errorf("unable to find room for user %s with UUID %s", username, uuid)
 }
 
 func (s *Sockets) JoinRoom(room, uuid string) error {
+	if room == "" || uuid == "" {
+		return errors.New("invalid input: room or UUID is empty")
+	}
+
 	s.Lock()
 	defer s.Unlock()
-	if conn := s.Connections[uuid]; conn != nil {
-		conn.Room = &Room{
-			Name: room,
-		}
-	} else {
-		return errors.New("unable to find client connection")
+
+	if conn, ok := s.Connections[uuid]; ok {
+		conn.Room = &Room{Name: room}
+		log.Printf("User with UUID %s joined room %s", uuid, room)
+		return nil
 	}
-	return nil
+
+	return fmt.Errorf("unable to find client connection for UUID %s", uuid)
+}
+
+func (s *Sockets) LeaveRoom(uuid string) {
+	if uuid == "" {
+		log.Println("Attempted to leave room with empty UUID")
+		return
+	}
+
+	s.Lock()
+	defer s.Unlock()
+
+	if conn, ok := s.Connections[uuid]; ok && conn.Room != nil {
+		conn.Room = &Room{} // Effectively "leaving" the room by resetting it
+		log.Printf("User with UUID %s left the room", uuid)
+	}
 }
 
 func (s *Sockets) JoinRoomChannel(channel, uuid string) error {
+	if channel == "" || uuid == "" {
+		return errors.New("invalid input: channel or UUID is empty")
+	}
+
 	s.Lock()
 	defer s.Unlock()
-	if conn := s.Connections[uuid]; conn != nil {
+
+	if conn, ok := s.Connections[uuid]; ok && conn.Room != nil {
 		conn.Room.Channel = channel
-	} else {
-		return errors.New("unable to find client connection")
+		log.Printf("User with UUID %s joined channel %s", uuid, channel)
+		return nil
 	}
-	return nil
+	return fmt.Errorf("unable to find client connection for UUID %s", uuid)
 }
 
-func (s *Sockets) closeWS(conn *Connection) {
-	// Do we have a client and a connection?
-	if conn != nil {
-		s.handler.ConnectionClosed(&Context{
-			Connection: conn,
-			UUID:       conn.UUID,
-		})
-		// Close the Connection
-		if err := conn.Conn.Close(); err != nil {
-			// TODO: Log?
-		}
-		// Remove our connection from our session
-		if s.CheckIfSessionExists(conn.Username) {
-			// Check how many connections we have
-			if len(s.Sessions[conn.Username].connections) == 1 {
-				// Delete our session
-				if err := s.DeleteSession(conn.Username); err != nil {
-					// TODO: Log?
-				}
+func (s *Sockets) manageSessionAndConnection(conn *Connection) {
+	s.Lock()
+	defer s.Unlock()
+
+	username := conn.Username
+	uuid := conn.UUID
+
+	// Check if the session exists and manage the session if it does
+	if session, exists := s.Sessions[username]; exists {
+		delete(session.connections, uuid) // Remove connection from session
+
+		// If no more connections are left in the session, delete the session
+		if len(session.connections) == 0 {
+			if err := s.deleteSession(username); err != nil {
+				log.Printf("Error deleting session for user %s: %v", username, err)
 			}
 		}
-		// Remove our connection from the user connection list.
-		s.removeConnection(conn.UUID)
 	}
-}
 
-func (s *Sockets) addConnection(uuid string, conn *Connection) {
-	s.Lock()
-	defer s.Unlock()
-	// Start our pong handler
-	go conn.pongHandler()
-	// Append our connection
-	s.Connections[uuid] = conn
-}
-
-func (s *Sockets) removeConnection(uuid string) {
-	s.Lock()
-	defer s.Unlock()
+	// Remove the connection from the global list
 	delete(s.Connections, uuid)
 }
 
-func (s *Sockets) AddSession(username string, conn *Connection) error {
+func (s *Sockets) deleteSession(username string) error {
+	if _, exists := s.Sessions[username]; !exists {
+		return fmt.Errorf("no session exists for username: %s", username)
+	}
+
+	delete(s.Sessions, username)
+	return nil
+}
+
+func (s *Sockets) addConnection(uuid string, conn *Connection) {
+	if uuid == "" || conn == nil {
+		log.Println("Invalid parameters: UUID is empty or Connection is nil")
+		return
+	}
+
 	s.Lock()
 	defer s.Unlock()
-	// Do we already have a session?
-	if s.CheckIfSessionExists(username) {
-		return errors.New("session object already exists")
+
+	// Check if there's already an existing connection with the same UUID
+	if existing, exists := s.Connections[uuid]; exists {
+		log.Printf("Warning: Connection with UUID %s already exists, closing existing connection.", uuid)
+		existing.Conn.Close() // Ensure the existing connection is properly closed
 	}
+
+	// Start our pong handler
+	go conn.pongHandler(s.config.PingPeriod)
+
+	// Append our connection
+	s.Connections[uuid] = conn
+	log.Printf("Connection added with UUID %s", uuid)
+}
+
+func (s *Sockets) removeConnection(uuid string) {
+	if uuid == "" {
+		log.Println("Attempted to remove connection with empty UUID")
+		return
+	}
+
+	s.Lock()
+	if _, exists := s.Connections[uuid]; !exists {
+		s.Unlock()
+		log.Printf("No connection exists with UUID %s", uuid)
+		return
+	}
+
+	delete(s.Connections, uuid)
+	s.Unlock()
+	log.Printf("Connection removed with UUID %s", uuid)
+}
+
+func (s *Sockets) AddSession(username string, conn *Connection) error {
+	if username == "" || conn == nil {
+		return errors.New("invalid username or connection")
+	}
+
+	s.Lock()
+	defer s.Unlock()
+
+	// Do we already have a session?
+	if _, exists := s.Sessions[username]; exists {
+		return errors.New("session already exists for this user")
+	}
+
 	// Define our new session
 	newSession := &Session{
 		Username:    username,
@@ -374,29 +364,72 @@ func (s *Sockets) AddSession(username string, conn *Connection) error {
 	conn.addSession(newSession)
 	// Add our session to our sockets store
 	s.Sessions[username] = newSession
+
 	// success
 	return nil
 }
 
 func (s *Sockets) UpdateSession(username string, conn *Connection) error {
+	if username == "" || conn == nil {
+		return errors.New("invalid username or connection")
+	}
+
 	s.Lock()
 	defer s.Unlock()
-	if !s.CheckIfSessionExists(username) {
-		return errors.New("session does not exist for this user")
+
+	session, exists := s.Sessions[username]
+	if !exists {
+		log.Printf("Failed to update session: No session exists for %s", username)
+		return errors.New("no session exists for this user")
 	}
-	// Get our session object
-	session := s.Sessions[username]
+
 	// Add our connection to our session
 	session.addConnection(conn)
 	// Add our session to our connection
 	conn.addSession(session)
+
+	log.Printf("Session updated for user: %s", username)
 	// success
 	return nil
 }
 
 func (s *Sockets) DeleteSession(username string) error {
+	if username == "" {
+		return errors.New("invalid username")
+	}
+
 	s.Lock()
 	defer s.Unlock()
+
+	if _, exists := s.Sessions[username]; !exists {
+		log.Printf("Failed to delete session: No session exists for %s", username)
+		return errors.New("no session exists for this user")
+	}
+
 	delete(s.Sessions, username)
+	log.Printf("Session deleted for user: %s", username)
+
 	return nil
+}
+
+func (s *Sockets) closeWS(conn *Connection) {
+	// Check if the connection is non-nil
+	if conn == nil {
+		log.Println("Attempted to close a nil connection")
+		return
+	}
+
+	// Notify handler that the connection is closing
+	s.handler.ConnectionClosed(&Context{
+		Connection: conn,
+		UUID:       conn.UUID,
+	})
+
+	// Attempt to close the WebSocket connection
+	if err := conn.Conn.Close(); err != nil {
+		log.Printf("Error closing WebSocket connection for UUID %s: %v", conn.UUID, err)
+	}
+
+	// Safely manage the session and connection removal
+	s.manageSessionAndConnection(conn)
 }
