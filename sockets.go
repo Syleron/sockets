@@ -369,6 +369,13 @@ func (s *Sockets) AddSession(username string, conn *Connection) error {
 	return nil
 }
 
+func (s *Sockets) CheckIfSessionExists(username string) bool {
+	if s.Sessions[username] != nil {
+		return true
+	}
+	return false
+}
+
 func (s *Sockets) UpdateSession(username string, conn *Connection) error {
 	if username == "" || conn == nil {
 		return errors.New("invalid username or connection")
