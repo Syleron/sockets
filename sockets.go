@@ -23,6 +23,7 @@
 package sockets
 
 import (
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
@@ -55,7 +56,8 @@ type Sockets struct {
 
 type Context struct {
 	*Connection
-	UUID string
+	UUID      string
+	PeerCerts []*x509.Certificate
 }
 
 type Broadcast struct {
@@ -130,14 +132,21 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request, realI
 		log.Printf("Failed to upgrade WebSocket: %v", err)
 		return fmt.Errorf("websocket upgrade error: %w", err)
 	}
-
 	newConnection := NewConnection()
 	newConnection.Conn = ws
 	newConnection.RealIP = determineRealIP(ws, realIP)
 	newConnection.Status = true
 
+	peerCerts := getPeerCertificates(r)
+
 	s.addConnection(newConnection.UUID, newConnection)
-	context := &Context{Connection: newConnection, UUID: newConnection.UUID}
+
+	context := &Context{
+		Connection: newConnection,
+		UUID:       newConnection.UUID,
+		PeerCerts:  peerCerts,
+	}
+
 	s.handler.NewConnection(context)
 
 	ws.SetReadLimit(s.config.ReadLimitSize)

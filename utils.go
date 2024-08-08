@@ -23,11 +23,14 @@
 package sockets
 
 import (
+	"crypto/x509"
 	"github.com/gorilla/websocket"
 	"log"
 	"net"
+	"net/http"
 )
 
+// determineRealIP returns the real IP of the client
 func determineRealIP(ws *websocket.Conn, realIP string) string {
 	if realIP == "" {
 		return ws.RemoteAddr().String()
@@ -37,4 +40,20 @@ func determineRealIP(ws *websocket.Conn, realIP string) string {
 		return ws.RemoteAddr().String() // Fallback to the connection's remote address
 	}
 	return realIP
+}
+
+// getPeerCertificates returns the certificates from the request
+// IMPORTANT:To get the client certificate, you have to set the tls config on the server side to RequestClientCert at minimum
+// Example:
+//
+//	&tls.Config{
+//		ClientAuth:         tls.RequestClientCert,
+//	}
+func getPeerCertificates(r *http.Request) (requestCerts []*x509.Certificate) {
+	// Check if the request has a TLS connection
+	if r.TLS == nil {
+		return make([]*x509.Certificate, 0)
+	}
+	// Get the certificates from the connection
+	return r.TLS.PeerCertificates
 }
