@@ -23,7 +23,7 @@
 package sockets
 
 import (
-	"github.com/syleron/sockets/common"
+	"github.com/syleron/sockets/v2/common"
 	"sync"
 )
 
