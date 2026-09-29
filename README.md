@@ -19,7 +19,10 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
 
 ### Installation
 
-    go get github.com/syleron/sockets
+    go get github.com/syleron/sockets/v2
+
+Requires Go 1.21 or later. v2 is a breaking release; see [CHANGELOG.md](CHANGELOG.md)
+for migration steps from v1.
 
 ### Simple client usage
 
@@ -27,8 +30,8 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
 
     import (
         "fmt"
-        sktsClient "github.com/syleron/sockets/client"
-        "github.com/syleron/sockets/common"
+        sktsClient "github.com/syleron/sockets/v2/client"
+        "github.com/syleron/sockets/v2/common"
         "time"
     )
 
@@ -89,8 +92,8 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
 
     import (
         "fmt"
-        "github.com/syleron/sockets"
-        "github.com/syleron/sockets/common"
+        "github.com/syleron/sockets/v2"
+        "github.com/syleron/sockets/v2/common"
         "github.com/gin-gonic/gin"
     )
 

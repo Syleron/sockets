@@ -25,8 +25,8 @@ package main
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/syleron/sockets"
-	"github.com/syleron/sockets/common"
+	"github.com/syleron/sockets/v2"
+	"github.com/syleron/sockets/v2/common"
 	"log"
 	"time"
 )

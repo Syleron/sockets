@@ -25,7 +25,7 @@ package sockets
 import (
 	"fmt"
 
-	"github.com/syleron/sockets/common"
+	"github.com/syleron/sockets/v2/common"
 )
 
 var events map[string]*Event

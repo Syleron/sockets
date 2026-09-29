@@ -27,7 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
-	"github.com/syleron/sockets/common"
+	"github.com/syleron/sockets/v2/common"
 	"log"
 	"net/http"
 	"net/url"

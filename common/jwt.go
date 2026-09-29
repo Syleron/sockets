@@ -24,73 +24,99 @@ package common
 
 import (
 	"errors"
-	"github.com/golang-jwt/jwt"
 	"log"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type MapClaims map[string]interface{}
 
+// JWT holds the claims accepted by DecodeJWT: a required username plus the
+// registered claims (exp, nbf, iat, ...).
 type JWT struct {
 	Username string `json:"username"`
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
-func (t *JWT) validate() error {
-	var errMsgs string
+var (
+	// errMissingUsername is returned by Validate when the username claim is empty.
+	errMissingUsername = errors.New("missing username")
+	// errEmptyKey is returned when an empty HMAC key is supplied.
+	errEmptyKey = errors.New("empty signing key")
+	// errUnexpectedClaims is returned if the parser yields an unexpected claims type.
+	errUnexpectedClaims = errors.New("unexpected claims type")
+)
+
+// Validate implements jwt.ClaimsValidator. The parser calls it after the
+// registered-claim checks, and only once the signature has been verified.
+func (t JWT) Validate() error {
 	if t.Username == "" {
-		return errors.New("missing username")
+		return errMissingUsername
 	}
-	if errMsgs == "" {
-		return nil
-	} else {
-		return errors.New(errMsgs)
-	}
+	return nil
 }
 
+// validMethods pins DecodeJWT to HS256. The token's alg header is not trusted:
+// "none", other HMAC sizes and asymmetric algorithms are rejected before any
+// signature check.
+var validMethods = []string{jwt.SigningMethodHS256.Alg()}
+
+// DecodeJWT verifies an HS256 token with tokenKey and returns its claims.
+// It returns false if the key is empty, the alg is not HS256, the signature is
+// invalid, the token is malformed, expired (exp), not yet valid (nbf) or issued
+// in the future (iat), or the username claim is missing. exp, nbf and iat are
+// optional, as in v1; when present they are enforced with no leeway.
 func DecodeJWT(tokenString, tokenKey string) (bool, JWT) {
-	var jwtt = JWT{}
-	token, err := jwt.ParseWithClaims(tokenString, &jwtt, func(token *jwt.Token) (interface{}, error) {
-		return []byte(tokenKey), nil
-	})
-	if err != nil {
+	if tokenKey == "" {
+		log.Println(errEmptyKey)
 		return false, JWT{}
 	}
-	if token.Valid {
-		claims, ok := token.Claims.(*JWT)
-		if !ok {
-			return false, JWT{}
+	var claims JWT
+	token, err := jwt.ParseWithClaims(tokenString, &claims, func(*jwt.Token) (interface{}, error) {
+		return []byte(tokenKey), nil
+	},
+		jwt.WithValidMethods(validMethods),
+		jwt.WithIssuedAt(),
+	)
+	if err != nil {
+		if errors.Is(err, errMissingUsername) {
+			log.Println(errMissingUsername)
 		}
-		err := claims.validate()
-		if err != nil {
-			log.Println(err)
-			return false, JWT{}
-		}
-		return true, *claims
+		return false, JWT{}
 	}
-	return false, JWT{}
+	if !token.Valid {
+		return false, JWT{}
+	}
+	return true, claims
 }
 
+// DecodeJWTNoVerify parses a token WITHOUT verifying its signature or
+// validating any claim. The returned claims are attacker-controlled and must
+// never be used for authentication or authorisation; use DecodeJWT for that.
 func DecodeJWTNoVerify(tokenString string) (jwt.MapClaims, error) {
-	token, _, err := new(jwt.Parser).ParseUnverified(tokenString, jwt.MapClaims{})
+	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
 	if err != nil {
 		return nil, err
 	}
-	if claims, ok := token.Claims.(jwt.MapClaims); ok {
-		return claims, nil
-	} else {
-		return nil, err
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, errUnexpectedClaims
 	}
+	return claims, nil
 }
 
+// GenerateJWT returns an HS256 token carrying the username claim, signed with
+// secret and expiring in one hour. DecodeJWT accepts it with the same secret.
 func GenerateJWT(username, secret string) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"id":  username,
-		"exp": time.Now().Add(time.Hour).Unix(),
-	})
-	tokenString, err := token.SignedString([]byte(secret))
-	if err != nil {
-		return "", err
+	if secret == "" {
+		return "", errEmptyKey
 	}
-	return tokenString, nil
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, JWT{
+		Username: username,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	})
+	return token.SignedString([]byte(secret))
 }
