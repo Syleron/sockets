@@ -24,7 +24,7 @@ package common
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -40,10 +40,17 @@ type JWT struct {
 }
 
 var (
-	// errMissingUsername is returned by Validate when the username claim is empty.
-	errMissingUsername = errors.New("missing username")
-	// errEmptyKey is returned when an empty HMAC key is supplied.
-	errEmptyKey = errors.New("empty signing key")
+	// ErrMissingUsername is returned (wrapped) by ParseJWT when the token's
+	// username claim is empty. JWT.Validate returns it unwrapped.
+	ErrMissingUsername = errors.New("missing username")
+	// ErrEmptyKey is returned when an empty HMAC key is supplied to ParseJWT
+	// or GenerateJWT.
+	ErrEmptyKey = errors.New("empty signing key")
+	// ErrInvalidToken wraps every ParseJWT rejection other than ErrEmptyKey.
+	// The jwt/v5 cause (for example jwt.ErrTokenMalformed,
+	// jwt.ErrTokenSignatureInvalid, jwt.ErrTokenExpired) is wrapped too, so
+	// errors.Is matches both.
+	ErrInvalidToken = errors.New("invalid token")
 	// errUnexpectedClaims is returned if the parser yields an unexpected claims type.
 	errUnexpectedClaims = errors.New("unexpected claims type")
 )
@@ -52,7 +59,7 @@ var (
 // registered-claim checks, and only once the signature has been verified.
 func (t JWT) Validate() error {
 	if t.Username == "" {
-		return errMissingUsername
+		return ErrMissingUsername
 	}
 	return nil
 }
@@ -67,10 +74,24 @@ var validMethods = []string{jwt.SigningMethodHS256.Alg()}
 // invalid, the token is malformed, expired (exp), not yet valid (nbf) or issued
 // in the future (iat), or the username claim is missing. exp, nbf and iat are
 // optional, as in v1; when present they are enforced with no leeway.
+//
+// DecodeJWT does not log. Use ParseJWT to get the reason for a rejection.
 func DecodeJWT(tokenString, tokenKey string) (bool, JWT) {
+	claims, err := ParseJWT(tokenString, tokenKey)
+	return err == nil, claims
+}
+
+// ParseJWT applies the same checks as DecodeJWT and returns the claims, or the
+// zero JWT and an error describing the rejection:
+//   - ErrEmptyKey if tokenKey is empty;
+//   - otherwise an error wrapping ErrInvalidToken and the jwt/v5 cause, plus
+//     ErrMissingUsername when the username claim is empty.
+//
+// The error text never includes the token or the key, but it can include the
+// jwt/v5 parser's description of a malformed segment.
+func ParseJWT(tokenString, tokenKey string) (JWT, error) {
 	if tokenKey == "" {
-		log.Println(errEmptyKey)
-		return false, JWT{}
+		return JWT{}, ErrEmptyKey
 	}
 	var claims JWT
 	token, err := jwt.ParseWithClaims(tokenString, &claims, func(*jwt.Token) (interface{}, error) {
@@ -80,15 +101,12 @@ func DecodeJWT(tokenString, tokenKey string) (bool, JWT) {
 		jwt.WithIssuedAt(),
 	)
 	if err != nil {
-		if errors.Is(err, errMissingUsername) {
-			log.Println(errMissingUsername)
-		}
-		return false, JWT{}
+		return JWT{}, fmt.Errorf("%w: %w", ErrInvalidToken, err)
 	}
 	if !token.Valid {
-		return false, JWT{}
+		return JWT{}, ErrInvalidToken
 	}
-	return true, claims
+	return claims, nil
 }
 
 // DecodeJWTNoVerify parses a token WITHOUT verifying its signature or
@@ -110,7 +128,7 @@ func DecodeJWTNoVerify(tokenString string) (jwt.MapClaims, error) {
 // secret and expiring in one hour. DecodeJWT accepts it with the same secret.
 func GenerateJWT(username, secret string) (string, error) {
 	if secret == "" {
-		return "", errEmptyKey
+		return "", ErrEmptyKey
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, JWT{
 		Username: username,

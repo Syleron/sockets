@@ -54,10 +54,3 @@ func (s *Session) addConnection(newConnection *Connection) {
 	// Append our connection
 	s.connections[newConnection.UUID] = newConnection
 }
-
-func (s *Session) removeConnection(uuid string) {
-	s.Lock()
-	defer s.Unlock()
-	// Remove our connection from our connections array
-	delete(s.connections, uuid)
-}

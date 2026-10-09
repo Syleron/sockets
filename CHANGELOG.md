@@ -1,5 +1,64 @@
 # Changelog
 
+## v2.1.0
+
+Maintenance and security release. Backward compatible with v2.0.0: no
+exported identifier or signature is removed or changed (checked with
+`apidiff`; the only changes are additions).
+
+### Security
+
+- `github.com/gorilla/websocket` v1.5.0 -> v1.5.3. Fixes
+  [GO-2026-6278](https://pkg.go.dev/vuln/GO-2026-6278) (weak PRNG for the
+  client mask key), which v2.0.0 called.
+- `github.com/gin-gonic/gin` is no longer a dependency. It was only used by
+  `examples/server`, which now uses `net/http`. This drops gin's indirect tail
+  (old `golang.org/x/crypto`, `golang.org/x/sys`, `gopkg.in/yaml.v2`,
+  `github.com/golang/protobuf`, `github.com/ugorji/go`, validator,
+  json-iterator, ...) from the module graph.
+- `github.com/rs/xid` v1.4.0 -> v1.6.0.
+- `govulncheck ./...` (go1.25.9) reports no third-party advisories, called or
+  not. The remaining findings are in the Go standard library and are fixed by
+  building with a current Go patch release.
+
+### Added
+
+- `Config.Logger *slog.Logger`: optional logger for the server. When nil the
+  library logs to `slog.Default()`, resolved at log time.
+- `client.Secure.Logger *slog.Logger`: the same for the client.
+- `common.ParseJWT(token, key) (JWT, error)`: the same checks as `DecodeJWT`,
+  but returns why a token was rejected.
+- `common.ErrEmptyKey`, `common.ErrMissingUsername`, `common.ErrInvalidToken`:
+  sentinel errors for `errors.Is`. Rejections other than an empty key wrap
+  `ErrInvalidToken` and the `jwt/v5` cause (for example `jwt.ErrTokenExpired`,
+  `jwt.ErrTokenSignatureInvalid`, `jwt.ErrTokenMalformed`).
+
+### Changed
+
+- The library no longer writes to the stdlib `log` package or to stdout. All
+  messages go through the logger above, as structured `log/slog` records:
+  - failures (websocket upgrade, emit, close, invalid input, invalid `realIP`,
+    protected event called without a session) at **Warn**;
+  - shutdown on interrupt at **Info**;
+  - connection, room, channel and session lifecycle messages, and events with
+    no registered handler, at **Debug**.
+
+  With the default `slog.Default()` handler, Info and above are printed
+  through the stdlib `log` output as before, but the Debug lifecycle messages
+  are no longer printed unless the consumer enables Debug level. Failures
+  that are also returned as errors (`UpdateSession`, `DeleteSession` with an
+  unknown user) are logged at Debug only.
+- `common.DecodeJWT` no longer logs `empty signing key` / `missing username`.
+  Its behaviour and signature are unchanged; use `ParseJWT` for the reason.
+- The ping/pong read-deadline errors are now checked: a failure to extend the
+  read deadline in the pong handler closes the connection rather than being
+  ignored.
+- Removed the unused unexported `Sockets.removeConnection` and
+  `Session.removeConnection`.
+- Removed the prebuilt Linux binaries `examples/client/client` and
+  `examples/server/server` from the repository (they were built with the old
+  dependencies); `go build ./examples/...` builds them.
+
 ## v2.0.0
 
 Security release. Replaces `github.com/golang-jwt/jwt` v3 (affected by

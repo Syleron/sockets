@@ -24,6 +24,28 @@ Sockets is a websocket framework based on gorilla/websocket providing a simple w
 Requires Go 1.21 or later. v2 is a breaking release; see [CHANGELOG.md](CHANGELOG.md)
 for migration steps from v1.
 
+### Logging
+
+The library does not write to the stdlib `log` package or to stdout. It logs
+structured `log/slog` records to an optional logger:
+
+    // Server
+    s := sockets.New(handler, &sockets.Config{
+        Logger: slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})),
+    })
+
+    // Client
+    c, err := sktsClient.Dial(addr, "/ws", &sktsClient.Secure{Logger: myLogger}, handler)
+
+When `Logger` is nil, records go to `slog.Default()` (looked up each time, so
+`slog.SetDefault` after `New`/`Dial` is honoured). Failures are logged at
+Warn, shutdown at Info, and connection/room/session lifecycle messages at
+Debug. To silence the library, pass a logger whose handler discards records.
+
+`common.DecodeJWT` never logs. Use `common.ParseJWT` to get the rejection
+reason as an error (`errors.Is` with `common.ErrEmptyKey`,
+`common.ErrInvalidToken`, `common.ErrMissingUsername` or the `jwt/v5` errors).
+
 ### Simple client usage
 
     package main
@@ -54,7 +76,7 @@ for migration steps from v1.
 
     func main() {
         // Create our websocket client
-        client, err := sktsClient.Dial("127.0.0.1:5000", false, &SocketHandler{})
+        client, err := sktsClient.Dial("127.0.0.1:5000", "/ws", nil, &SocketHandler{})
         if err != nil {
             panic(err)
         }
@@ -92,9 +114,11 @@ for migration steps from v1.
 
     import (
         "fmt"
+        "net/http"
+        "time"
+
         "github.com/syleron/sockets/v2"
         "github.com/syleron/sockets/v2/common"
-        "github.com/gin-gonic/gin"
     )
 
     type SocketHandler struct {}
@@ -111,26 +135,22 @@ for migration steps from v1.
 
     func main () {
         // Setup socket server
-        sockets := sockets.New(&SocketHandler{})
+        ws := sockets.New(&SocketHandler{}, &sockets.Config{})
 
         // Register our events
-        sockets.HandleEvent("ping", ping)
-
-        // Set our gin release mode
-        gin.SetMode(gin.ReleaseMode)
-
-        // Setup router
-        router := gin.Default()
+        ws.HandleEvent("ping", ping, false)
 
         // Setup websockets
-        router.GET("/ws", func(c *gin.Context) {
-            sockets.HandleConnection(c.Writer, c.Request)
+        mux := http.NewServeMux()
+        mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+            _ = ws.HandleConnection(w, r, "")
         })
 
         fmt.Println("> Sockets server started. Waiting for connections..")
 
         // Start server
-        router.Run(":5000")
+        srv := &http.Server{Addr: ":5000", Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+        panic(srv.ListenAndServe())
     }
 
     func ping(msg *common.Message, ctx *sockets.Context) {
