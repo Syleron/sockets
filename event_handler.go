@@ -23,7 +23,7 @@
 package sockets
 
 import (
-	"fmt"
+	"log/slog"
 
 	"github.com/syleron/sockets/v2/common"
 )
@@ -37,7 +37,14 @@ type Event struct {
 
 type EventFunc func(msg *common.Message, ctx *Context)
 
+// EventHandler dispatches msg to the handler registered for its event name.
+// Dropped messages are logged to slog.Default(); Sockets itself dispatches
+// through Config.Logger.
 func EventHandler(msg *common.Message, ctx *Context) {
+	dispatchEvent(slog.Default(), msg, ctx)
+}
+
+func dispatchEvent(logger *slog.Logger, msg *common.Message, ctx *Context) {
 	event := events[msg.EventName]
 	if event != nil {
 		// Check to see if we are protected
@@ -45,12 +52,13 @@ func EventHandler(msg *common.Message, ctx *Context) {
 			if ctx.HasSession() {
 				event.EventFunc(msg, ctx)
 			} else {
-				fmt.Print("protected " + msg.EventName + " event called, however, no session has been set. Handler dropped. " + ctx.UUID)
+				logger.Warn("protected event called without a session, handler dropped",
+					slog.String("event", msg.EventName), slog.String("uuid", ctx.UUID))
 			}
 		} else {
 			event.EventFunc(msg, ctx)
 		}
 	} else {
-		fmt.Print("event " + msg.EventName + " does not have an event handler")
+		logger.Debug("no handler registered for event", slog.String("event", msg.EventName))
 	}
 }

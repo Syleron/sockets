@@ -25,18 +25,18 @@ package sockets
 import (
 	"crypto/x509"
 	"github.com/gorilla/websocket"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 )
 
 // determineRealIP returns the real IP of the client
-func determineRealIP(ws *websocket.Conn, realIP string) string {
+func determineRealIP(logger *slog.Logger, ws *websocket.Conn, realIP string) string {
 	if realIP == "" {
 		return ws.RemoteAddr().String()
 	}
 	if net.ParseIP(realIP) == nil {
-		log.Printf("Invalid realIP provided: %s", realIP)
+		logger.Warn("invalid realIP provided, using remote address", slog.String("realIP", realIP))
 		return ws.RemoteAddr().String() // Fallback to the connection's remote address
 	}
 	return realIP

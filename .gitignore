@@ -10,3 +10,7 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+# Example binaries (go build ./examples/...)
+/examples/client/client
+/examples/server/server

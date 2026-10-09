@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -75,37 +76,74 @@ func TestDecodeJWT_Rejected(t *testing.T) {
 	hs256 := sign(t, jwt.SigningMethodHS256, valid, []byte(testKey))
 	parts := strings.Split(hs256, ".")
 
-	cases := map[string]string{
-		"expired": sign(t, jwt.SigningMethodHS256, claimsFor("alice", now.Add(-time.Minute)), []byte(testKey)),
-		"not yet valid (nbf)": sign(t, jwt.SigningMethodHS256, JWT{Username: "alice", RegisteredClaims: jwt.RegisteredClaims{
+	malformed := []error{ErrInvalidToken, jwt.ErrTokenMalformed}
+	badSig := []error{ErrInvalidToken, jwt.ErrTokenSignatureInvalid}
+	unverifiable := []error{ErrInvalidToken, jwt.ErrTokenSignatureInvalid}
+
+	cases := map[string]struct {
+		tok  string
+		want []error
+	}{
+		"expired": {sign(t, jwt.SigningMethodHS256, claimsFor("alice", now.Add(-time.Minute)), []byte(testKey)),
+			[]error{ErrInvalidToken, jwt.ErrTokenExpired}},
+		"not yet valid (nbf)": {sign(t, jwt.SigningMethodHS256, JWT{Username: "alice", RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(2 * time.Hour)),
 			NotBefore: jwt.NewNumericDate(now.Add(time.Hour)),
-		}}, []byte(testKey)),
-		"issued in the future (iat)": sign(t, jwt.SigningMethodHS256, JWT{Username: "alice", RegisteredClaims: jwt.RegisteredClaims{
+		}}, []byte(testKey)), []error{ErrInvalidToken, jwt.ErrTokenNotValidYet}},
+		"issued in the future (iat)": {sign(t, jwt.SigningMethodHS256, JWT{Username: "alice", RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(2 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(now.Add(time.Hour)),
-		}}, []byte(testKey)),
-		"bad signature":          sign(t, jwt.SigningMethodHS256, valid, []byte("some-other-key")),
-		"tampered payload":       parts[0] + "." + strings.Split(sign(t, jwt.SigningMethodHS256, claimsFor("mallory", now.Add(time.Hour)), []byte("x")), ".")[1] + "." + parts[2],
-		"stripped signature":     parts[0] + "." + parts[1] + ".",
-		"wrong alg HS384":        sign(t, jwt.SigningMethodHS384, valid, []byte(testKey)),
-		"wrong alg HS512":        sign(t, jwt.SigningMethodHS512, valid, []byte(testKey)),
-		"alg none":               noneTok,
-		"RS256":                  sign(t, jwt.SigningMethodRS256, valid, rsaKey),
-		"HS256 with RSA pub key": sign(t, jwt.SigningMethodHS256, valid, pubPEM),
-		"missing username":       sign(t, jwt.SigningMethodHS256, claimsFor("", now.Add(time.Hour)), []byte(testKey)),
-		"empty":                  "",
-		"garbage":                "abc",
-		"two segments":           parts[0] + "." + parts[1],
+		}}, []byte(testKey)), []error{ErrInvalidToken, jwt.ErrTokenUsedBeforeIssued}},
+		"bad signature":          {sign(t, jwt.SigningMethodHS256, valid, []byte("some-other-key")), badSig},
+		"tampered payload":       {parts[0] + "." + strings.Split(sign(t, jwt.SigningMethodHS256, claimsFor("mallory", now.Add(time.Hour)), []byte("x")), ".")[1] + "." + parts[2], badSig},
+		"stripped signature":     {parts[0] + "." + parts[1] + ".", badSig},
+		"wrong alg HS384":        {sign(t, jwt.SigningMethodHS384, valid, []byte(testKey)), unverifiable},
+		"wrong alg HS512":        {sign(t, jwt.SigningMethodHS512, valid, []byte(testKey)), unverifiable},
+		"alg none":               {noneTok, unverifiable},
+		"RS256":                  {sign(t, jwt.SigningMethodRS256, valid, rsaKey), unverifiable},
+		"HS256 with RSA pub key": {sign(t, jwt.SigningMethodHS256, valid, pubPEM), badSig},
+		"missing username": {sign(t, jwt.SigningMethodHS256, claimsFor("", now.Add(time.Hour)), []byte(testKey)),
+			[]error{ErrInvalidToken, jwt.ErrTokenInvalidClaims, ErrMissingUsername}},
+		"empty":        {"", malformed},
+		"garbage":      {"abc", malformed},
+		"two segments": {parts[0] + "." + parts[1], malformed},
 	}
-	for name, tok := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			ok, c := DecodeJWT(tok, testKey)
+			ok, c := DecodeJWT(tc.tok, testKey)
 			if ok {
 				t.Fatalf("expected rejection, got accepted with %+v", c)
 			}
 			if !reflect.DeepEqual(c, JWT{}) {
 				t.Fatalf("expected zero JWT on rejection, got %+v", c)
+			}
+
+			pc, err := ParseJWT(tc.tok, testKey)
+			if err == nil {
+				t.Fatalf("ParseJWT: expected error, got claims %+v", pc)
+			}
+			if !reflect.DeepEqual(pc, JWT{}) {
+				t.Fatalf("ParseJWT: expected zero JWT on rejection, got %+v", pc)
+			}
+			for _, want := range tc.want {
+				if !errors.Is(err, want) {
+					t.Errorf("ParseJWT error %q does not match %q", err, want)
+				}
+			}
+			if errors.Is(err, ErrEmptyKey) {
+				t.Errorf("ParseJWT error %q unexpectedly matches ErrEmptyKey", err)
+			}
+			// The error must not echo the token or the key.
+			if tc.tok != "" && strings.Contains(err.Error(), tc.tok) {
+				t.Errorf("ParseJWT error leaks the token: %q", err)
+			}
+			for _, seg := range strings.Split(tc.tok, ".") {
+				if len(seg) >= 8 && strings.Contains(err.Error(), seg) {
+					t.Errorf("ParseJWT error leaks a token segment: %q", err)
+				}
+			}
+			if strings.Contains(err.Error(), testKey) {
+				t.Errorf("ParseJWT error leaks the key: %q", err)
 			}
 		})
 	}
@@ -114,8 +152,29 @@ func TestDecodeJWT_Rejected(t *testing.T) {
 func TestDecodeJWT_EmptyKeyRejected(t *testing.T) {
 	// A token signed with an empty key must not validate against an empty key.
 	tok := sign(t, jwt.SigningMethodHS256, claimsFor("alice", time.Now().Add(time.Hour)), []byte(""))
-	if ok, _ := DecodeJWT(tok, ""); ok {
-		t.Fatal("expected empty key to be rejected")
+	if ok, c := DecodeJWT(tok, ""); ok || !reflect.DeepEqual(c, JWT{}) {
+		t.Fatalf("expected empty key to be rejected with zero JWT, got ok=%v %+v", ok, c)
+	}
+	c, err := ParseJWT(tok, "")
+	if !errors.Is(err, ErrEmptyKey) {
+		t.Fatalf("ParseJWT error = %v, want ErrEmptyKey", err)
+	}
+	if errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("ParseJWT empty-key error %v should not match ErrInvalidToken", err)
+	}
+	if !reflect.DeepEqual(c, JWT{}) {
+		t.Fatalf("expected zero JWT, got %+v", c)
+	}
+}
+
+func TestParseJWT_Valid(t *testing.T) {
+	tok := sign(t, jwt.SigningMethodHS256, claimsFor("alice", time.Now().Add(time.Hour)), []byte(testKey))
+	c, err := ParseJWT(tok, testKey)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.Username != "alice" {
+		t.Fatalf("username = %q, want alice", c.Username)
 	}
 }
 

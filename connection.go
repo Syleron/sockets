@@ -97,19 +97,16 @@ func (c *Connection) pongHandler(pingPeriod time.Duration) {
 		c.Status = false
 		// Stop our ticker
 		ticker.Stop()
-		// Close our connection
+		// Close our connection; the read loop observes the error and cleans up.
 		// TODO: This may cause issues as it may not clear up our connections array
-		c.Conn.Close()
+		_ = c.Conn.Close()
 	}()
 
-	for {
-		select {
-		// Send a ping message depicted by our ticker
-		case <-ticker.C:
-			// Periodically send a ping message
-			if err := c.Conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				return
-			}
+	// Send a ping message depicted by our ticker
+	for range ticker.C {
+		// Periodically send a ping message
+		if err := c.Conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+			return
 		}
 	}
 }

@@ -24,11 +24,14 @@ package main
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
+	"log"
+	"log/slog"
+	"net/http"
+	"os"
+	"time"
+
 	"github.com/syleron/sockets/v2"
 	"github.com/syleron/sockets/v2/common"
-	"log"
-	"time"
 )
 
 var ws *sockets.Sockets
@@ -53,21 +56,19 @@ func main() {
 		PongWait:      60 * time.Second,
 		PingPeriod:    54 * time.Second, // 90% of PongWait
 		ReadLimitSize: 512,
+		// Optional: send library logs, including Debug-level connection
+		// chatter, to stderr. Leave nil to use slog.Default().
+		Logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
 	// Setup socket server with proper configuration
 	ws = sockets.New(&SocketHandler{}, config)
 
 	ws.HandleEvent("ping", ping, false)
 
-	// Set our gin release mode
-	gin.SetMode(gin.ReleaseMode)
-
-	// Setup router
-	router := gin.Default()
-
 	// Setup websockets
-	router.GET("/ws", func(c *gin.Context) {
-		if err := ws.HandleConnection(c.Writer, c.Request, ""); err != nil {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		if err := ws.HandleConnection(w, r, ""); err != nil {
 			return
 		}
 	})
@@ -75,7 +76,12 @@ func main() {
 	fmt.Println("> Sockets server started. Waiting for connections...")
 
 	// Start server
-	if err := router.Run(":9443"); err != nil {
+	srv := &http.Server{
+		Addr:              ":9443",
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		panic(err)
 	}
 }
@@ -88,7 +94,9 @@ func ping(msg *common.Message, ctx *sockets.Context) {
 		return
 	}
 
-	ctx.Emit(&common.Message{
+	if err := ctx.Emit(&common.Message{
 		EventName: "pong",
-	})
+	}); err != nil {
+		log.Printf("Failed to send pong: %v", err)
+	}
 }

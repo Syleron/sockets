@@ -28,7 +28,7 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"github.com/syleron/sockets/v2/common"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -61,8 +61,8 @@ type Context struct {
 }
 
 type Broadcast struct {
-	message *common.Message
-	context *Context
+	message *common.Message //nolint:unused // unexported, kept to leave the exported Broadcast type unchanged
+	context *Context        //nolint:unused // unexported, kept to leave the exported Broadcast type unchanged
 }
 
 type Room struct {
@@ -101,12 +101,17 @@ func (s *Sockets) Close() {
 
 	for _, c := range s.Connections {
 		if c.Conn != nil {
-			c.Conn.Close()
+			_ = c.Conn.Close() // best effort: the process exits below
 		}
 	}
 
-	log.Println("All connections closed.")
+	s.logger().Info("all connections closed")
 	os.Exit(0)
+}
+
+// logger returns the logger from Config, or slog.Default() when unset.
+func (s *Sockets) logger() *slog.Logger {
+	return s.config.logger()
 }
 
 func (s *Sockets) HandleEvent(pattern string, handler EventFunc, protected bool) {
@@ -122,19 +127,19 @@ func (s *Sockets) HandleEvent(pattern string, handler EventFunc, protected bool)
 
 func (s *Sockets) manageInterrupts() {
 	<-s.interrupt
-	log.Println("Received interrupt signal, shutting down...")
+	s.logger().Info("received interrupt signal, shutting down")
 	s.Close()
 }
 
 func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request, realIP string) error {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("Failed to upgrade WebSocket: %v", err)
+		s.logger().Warn("websocket upgrade failed", slog.Any("error", err))
 		return fmt.Errorf("websocket upgrade error: %w", err)
 	}
 	newConnection := NewConnection()
 	newConnection.Conn = ws
-	newConnection.RealIP = determineRealIP(ws, realIP)
+	newConnection.RealIP = determineRealIP(s.logger(), ws, realIP)
 	newConnection.Status = true
 
 	peerCerts := getPeerCertificates(r)
@@ -150,10 +155,11 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request, realI
 	s.handler.NewConnection(context)
 
 	ws.SetReadLimit(s.config.ReadLimitSize)
-	ws.SetReadDeadline(time.Now().Add(s.config.PongWait))
+	if err := ws.SetReadDeadline(time.Now().Add(s.config.PongWait)); err != nil {
+		s.logger().Warn("failed to set read deadline", slog.String("uuid", newConnection.UUID), slog.Any("error", err))
+	}
 	ws.SetPongHandler(func(string) error {
-		ws.SetReadDeadline(time.Now().Add(s.config.PongWait))
-		return nil
+		return ws.SetReadDeadline(time.Now().Add(s.config.PongWait))
 	})
 
 	return s.handleMessages(ws, context)
@@ -166,7 +172,7 @@ func (s *Sockets) handleMessages(ws *websocket.Conn, context *Context) error {
 			s.closeWS(context.Connection)
 			return fmt.Errorf("error reading JSON: %w", err)
 		}
-		EventHandler(&msg, context)
+		dispatchEvent(s.logger(), &msg, context)
 	}
 }
 
@@ -204,7 +210,7 @@ func (s *Sockets) broadcastHelper(filter func(*Connection) bool, event string, d
 			}
 
 			if err := c.Emit(message); err != nil {
-				log.Printf("Failed to emit message to UUID %s: %v", c.UUID, err)
+				s.logger().Warn("failed to emit message", slog.String("uuid", c.UUID), slog.Any("error", err))
 				continue
 			}
 		}
@@ -238,7 +244,7 @@ func (s *Sockets) JoinRoom(room, uuid string) error {
 
 	if conn, ok := s.Connections[uuid]; ok {
 		conn.Room = &Room{Name: room}
-		log.Printf("User with UUID %s joined room %s", uuid, room)
+		s.logger().Debug("joined room", slog.String("uuid", uuid), slog.String("room", room))
 		return nil
 	}
 
@@ -247,7 +253,7 @@ func (s *Sockets) JoinRoom(room, uuid string) error {
 
 func (s *Sockets) LeaveRoom(uuid string) {
 	if uuid == "" {
-		log.Println("Attempted to leave room with empty UUID")
+		s.logger().Warn("attempted to leave room with empty UUID")
 		return
 	}
 
@@ -256,7 +262,7 @@ func (s *Sockets) LeaveRoom(uuid string) {
 
 	if conn, ok := s.Connections[uuid]; ok && conn.Room != nil {
 		conn.Room = &Room{} // Effectively "leaving" the room by resetting it
-		log.Printf("User with UUID %s left the room", uuid)
+		s.logger().Debug("left room", slog.String("uuid", uuid))
 	}
 }
 
@@ -270,7 +276,7 @@ func (s *Sockets) JoinRoomChannel(channel, uuid string) error {
 
 	if conn, ok := s.Connections[uuid]; ok && conn.Room != nil {
 		conn.Room.Channel = channel
-		log.Printf("User with UUID %s joined channel %s", uuid, channel)
+		s.logger().Debug("joined channel", slog.String("uuid", uuid), slog.String("channel", channel))
 		return nil
 	}
 	return fmt.Errorf("unable to find client connection for UUID %s", uuid)
@@ -290,7 +296,7 @@ func (s *Sockets) manageSessionAndConnection(conn *Connection) {
 		// If no more connections are left in the session, delete the session
 		if len(session.connections) == 0 {
 			if err := s.deleteSession(username); err != nil {
-				log.Printf("Error deleting session for user %s: %v", username, err)
+				s.logger().Warn("failed to delete session", slog.String("username", username), slog.Any("error", err))
 			}
 		}
 	}
@@ -310,7 +316,7 @@ func (s *Sockets) deleteSession(username string) error {
 
 func (s *Sockets) addConnection(uuid string, conn *Connection) {
 	if uuid == "" || conn == nil {
-		log.Println("Invalid parameters: UUID is empty or Connection is nil")
+		s.logger().Warn("addConnection: empty UUID or nil connection")
 		return
 	}
 
@@ -319,8 +325,10 @@ func (s *Sockets) addConnection(uuid string, conn *Connection) {
 
 	// Check if there's already an existing connection with the same UUID
 	if existing, exists := s.Connections[uuid]; exists {
-		log.Printf("Warning: Connection with UUID %s already exists, closing existing connection.", uuid)
-		existing.Conn.Close() // Ensure the existing connection is properly closed
+		s.logger().Warn("connection with UUID already exists, closing existing connection", slog.String("uuid", uuid))
+		if err := existing.Conn.Close(); err != nil { // Ensure the existing connection is properly closed
+			s.logger().Debug("failed to close existing connection", slog.String("uuid", uuid), slog.Any("error", err))
+		}
 	}
 
 	// Start our pong handler
@@ -328,25 +336,7 @@ func (s *Sockets) addConnection(uuid string, conn *Connection) {
 
 	// Append our connection
 	s.Connections[uuid] = conn
-	log.Printf("Connection added with UUID %s", uuid)
-}
-
-func (s *Sockets) removeConnection(uuid string) {
-	if uuid == "" {
-		log.Println("Attempted to remove connection with empty UUID")
-		return
-	}
-
-	s.Lock()
-	if _, exists := s.Connections[uuid]; !exists {
-		s.Unlock()
-		log.Printf("No connection exists with UUID %s", uuid)
-		return
-	}
-
-	delete(s.Connections, uuid)
-	s.Unlock()
-	log.Printf("Connection removed with UUID %s", uuid)
+	s.logger().Debug("connection added", slog.String("uuid", uuid))
 }
 
 func (s *Sockets) AddSession(username string, conn *Connection) error {
@@ -379,10 +369,7 @@ func (s *Sockets) AddSession(username string, conn *Connection) error {
 }
 
 func (s *Sockets) CheckIfSessionExists(username string) bool {
-	if s.Sessions[username] != nil {
-		return true
-	}
-	return false
+	return s.Sessions[username] != nil
 }
 
 func (s *Sockets) UpdateSession(username string, conn *Connection) error {
@@ -395,7 +382,7 @@ func (s *Sockets) UpdateSession(username string, conn *Connection) error {
 
 	session, exists := s.Sessions[username]
 	if !exists {
-		log.Printf("Failed to update session: No session exists for %s", username)
+		s.logger().Debug("update session failed: no session exists", slog.String("username", username))
 		return errors.New("no session exists for this user")
 	}
 
@@ -404,7 +391,7 @@ func (s *Sockets) UpdateSession(username string, conn *Connection) error {
 	// Add our session to our connection
 	conn.addSession(session)
 
-	log.Printf("Session updated for user: %s", username)
+	s.logger().Debug("session updated", slog.String("username", username))
 	// success
 	return nil
 }
@@ -418,12 +405,12 @@ func (s *Sockets) DeleteSession(username string) error {
 	defer s.Unlock()
 
 	if _, exists := s.Sessions[username]; !exists {
-		log.Printf("Failed to delete session: No session exists for %s", username)
+		s.logger().Debug("delete session failed: no session exists", slog.String("username", username))
 		return errors.New("no session exists for this user")
 	}
 
 	delete(s.Sessions, username)
-	log.Printf("Session deleted for user: %s", username)
+	s.logger().Debug("session deleted", slog.String("username", username))
 
 	return nil
 }
@@ -431,7 +418,7 @@ func (s *Sockets) DeleteSession(username string) error {
 func (s *Sockets) closeWS(conn *Connection) {
 	// Check if the connection is non-nil
 	if conn == nil {
-		log.Println("Attempted to close a nil connection")
+		s.logger().Warn("attempted to close a nil connection")
 		return
 	}
 
@@ -443,7 +430,7 @@ func (s *Sockets) closeWS(conn *Connection) {
 
 	// Attempt to close the WebSocket connection
 	if err := conn.Conn.Close(); err != nil {
-		log.Printf("Error closing WebSocket connection for UUID %s: %v", conn.UUID, err)
+		s.logger().Warn("failed to close websocket connection", slog.String("uuid", conn.UUID), slog.Any("error", err))
 	}
 
 	// Safely manage the session and connection removal

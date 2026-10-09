@@ -22,7 +22,10 @@
 
 package sockets
 
-import "time"
+import (
+	"log/slog"
+	"time"
+)
 
 type Config struct {
 	// Time allowed to write a message to the peer.
@@ -33,6 +36,21 @@ type Config struct {
 	PingPeriod time.Duration
 	// Maximum message size allowed from peer.
 	ReadLimitSize int64
+	// Logger receives the library's log records. Optional: when nil, the
+	// library logs to slog.Default(), resolved at log time, so a later
+	// slog.SetDefault is honoured. Failures (upgrade, emit, close, invalid
+	// input) are logged at Warn; connection, room and session lifecycle
+	// events at Debug; shutdown at Info. To silence the library, pass a
+	// logger whose handler discards records.
+	Logger *slog.Logger
+}
+
+// logger returns the configured logger, or slog.Default() if none is set.
+func (c *Config) logger() *slog.Logger {
+	if c != nil && c.Logger != nil {
+		return c.Logger
+	}
+	return slog.Default()
 }
 
 // MergeDefaults sets the uninitialized fields in the config with default values.

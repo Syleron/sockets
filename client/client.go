@@ -28,7 +28,7 @@ import (
 	"fmt"
 	"github.com/gorilla/websocket"
 	"github.com/syleron/sockets/v2/common"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sync"
@@ -50,6 +50,7 @@ type Client struct {
 	ws       *websocket.Conn
 	emitChan chan *common.Message
 	handler  DataHandler
+	logger   *slog.Logger
 	Data     map[string]interface{}
 	sync.Mutex
 }
@@ -60,6 +61,11 @@ type Secure struct {
 	ProxyURL  string
 	ProxyUser string
 	ProxyPass string
+	// Logger receives the client's log records. Optional: when nil (or when
+	// Dial is given a nil *Secure), the client logs to slog.Default(),
+	// resolved at log time. Read and write failures are logged at Warn and
+	// are also passed to DataHandler.NewClientError.
+	Logger *slog.Logger
 }
 
 func Dial(addr, path string, secure *Secure, handler DataHandler) (*Client, error) {
@@ -71,6 +77,9 @@ func Dial(addr, path string, secure *Secure, handler DataHandler) (*Client, erro
 		emitChan: make(chan *common.Message),
 		handler:  handler,
 		Data:     make(map[string]interface{}),
+	}
+	if secure != nil {
+		client.logger = secure.Logger
 	}
 
 	if err := client.connect(addr, path, secure); err != nil {
@@ -139,7 +148,7 @@ func (c *Client) handleIncoming() {
 		err := c.ws.ReadJSON(&msg)
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("Error: %v", err)
+				c.log().Warn("websocket read failed", slog.Any("error", err))
 				c.handler.NewClientError(err)
 			}
 			break
@@ -151,7 +160,7 @@ func (c *Client) handleIncoming() {
 func (c *Client) handleOutgoing() {
 	for message := range c.emitChan { // Will exit loop if channel is closed
 		if err := c.ws.WriteJSON(message); err != nil {
-			log.Printf("Failed to send message: %v", err)
+			c.log().Warn("failed to send message", slog.Any("error", err))
 			c.handler.NewClientError(err)
 			continue
 		}
@@ -167,11 +176,19 @@ func (c *Client) Close() {
 
 	if c.ws != nil {
 		if err := c.ws.Close(); err != nil {
-			log.Printf("Error closing WebSocket connection: %v", err)
+			c.log().Warn("failed to close websocket connection", slog.Any("error", err))
 		}
 	}
 
 	c.handler.ConnectionClosed()
+}
+
+// log returns the logger from Secure, or slog.Default() when unset.
+func (c *Client) log() *slog.Logger {
+	if c.logger != nil {
+		return c.logger
+	}
+	return slog.Default()
 }
 
 func (c *Client) HandleEvent(pattern string, handler EventFunc) {
