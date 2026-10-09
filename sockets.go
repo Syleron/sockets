@@ -141,6 +141,7 @@ func (s *Sockets) HandleConnection(w http.ResponseWriter, r *http.Request, realI
 	newConnection.Conn = ws
 	newConnection.RealIP = determineRealIP(s.logger(), ws, realIP)
 	newConnection.Status = true
+	newConnection.writeWait = s.config.WriteWait
 
 	peerCerts := getPeerCertificates(r)
 
@@ -194,25 +195,29 @@ func (s *Sockets) BroadcastToRoomChannel(roomName, channelName, event string, da
 	}, event, data)
 }
 
+// broadcastHelper selects the target connections under the registry read
+// lock, then writes to them after releasing it. Writing outside the registry
+// lock means a slow or stuck peer (bounded by Config.WriteWait) cannot hold
+// the registry and stall JoinRoom, session changes and connection cleanup,
+// and the registry lock is never held while waiting for a connection's write
+// lock.
 func (s *Sockets) broadcastHelper(filter func(*Connection) bool, event string, data interface{}) {
 	s.RLock()
-	defer s.RUnlock()
-
+	var targets []*Connection
 	for _, c := range s.Connections {
-		if c.Conn == nil {
-			continue
+		if c.Conn != nil && filter(c) {
+			targets = append(targets, c)
 		}
+	}
+	s.RUnlock()
 
-		if filter(c) {
-			message := common.Response{
-				EventName: event,
-				Data:      data,
-			}
-
-			if err := c.Emit(message); err != nil {
-				s.logger().Warn("failed to emit message", slog.String("uuid", c.UUID), slog.Any("error", err))
-				continue
-			}
+	message := common.Response{
+		EventName: event,
+		Data:      data,
+	}
+	for _, c := range targets {
+		if err := c.Emit(message); err != nil {
+			s.logger().Warn("failed to emit message", slog.String("uuid", c.UUID), slog.Any("error", err))
 		}
 	}
 }
@@ -291,10 +296,15 @@ func (s *Sockets) manageSessionAndConnection(conn *Connection) {
 
 	// Check if the session exists and manage the session if it does
 	if session, exists := s.Sessions[username]; exists {
+		// Session.Emit and HasSession read connections under the session
+		// lock, so changes to it take that lock too (registry lock first).
+		session.Lock()
 		delete(session.connections, uuid) // Remove connection from session
+		remaining := len(session.connections)
+		session.Unlock()
 
 		// If no more connections are left in the session, delete the session
-		if len(session.connections) == 0 {
+		if remaining == 0 {
 			if err := s.deleteSession(username); err != nil {
 				s.logger().Warn("failed to delete session", slog.String("username", username), slog.Any("error", err))
 			}
@@ -332,7 +342,7 @@ func (s *Sockets) addConnection(uuid string, conn *Connection) {
 	}
 
 	// Start our pong handler
-	go conn.pongHandler(s.config.PingPeriod)
+	go conn.pongHandler(s.config.PingPeriod, s.config.WriteWait)
 
 	// Append our connection
 	s.Connections[uuid] = conn
@@ -369,6 +379,8 @@ func (s *Sockets) AddSession(username string, conn *Connection) error {
 }
 
 func (s *Sockets) CheckIfSessionExists(username string) bool {
+	s.RLock()
+	defer s.RUnlock()
 	return s.Sessions[username] != nil
 }
 
