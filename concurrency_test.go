@@ -261,27 +261,33 @@ func TestSessionEmit_ConcurrentTabs(t *testing.T) {
 	}
 }
 
-// TestSlowPeer_DoesNotStallRegistry connects a peer that never reads, so the
-// server's send buffer fills and writes to it block. A Broadcast that blocks
-// on that peer must not hold the registry lock (JoinRoom stays fast), must
-// give up after Config.WriteWait, and the connection must then be closed by
-// the keepalive.
-func TestSlowPeer_DoesNotStallRegistry(t *testing.T) {
-	const writeWait = time.Second
+// slowPeer starts a server with cfg and connects a client that never reads,
+// so the server's send buffer fills and writes to it block.
+func slowPeer(t *testing.T, cfg *Config) (*Sockets, *ctxHandler, *Context) {
+	t.Helper()
 	h := &ctxHandler{opened: make(chan *Context, 1), closed: make(chan struct{}, 1)}
-	s := New(h, &Config{WriteWait: writeWait, PingPeriod: 50 * time.Millisecond, Logger: discardLogger()})
+	cfg.Logger = discardLogger()
+	s := New(h, cfg)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = s.HandleConnection(w, r, "")
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	conn := dial(t, srv) // never read from: the peer is stuck
-	defer func() { _ = conn.Close() }()
-	waitCtx(t, h.opened)
+	t.Cleanup(func() { _ = conn.Close() })
+	return s, h, waitCtx(t, h.opened)
+}
 
+// blockBroadcast broadcasts a large payload until one Broadcast takes at
+// least writeWait/2 (it blocked on the stuck peer), while repeatedly taking
+// the registry write lock via JoinRoom. It returns how long the blocked
+// Broadcast took and the longest JoinRoom wait. It fails the test if no
+// Broadcast returns within 15s.
+func blockBroadcast(t *testing.T, s *Sockets, writeWait time.Duration) (blocked, maxJoin time.Duration) {
+	t.Helper()
 	payload := strings.Repeat("x", 256<<10)
-	var blocked atomic.Int64 // duration of the Broadcast that hit the deadline
+	var d atomic.Int64
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -289,45 +295,78 @@ func TestSlowPeer_DoesNotStallRegistry(t *testing.T) {
 		for time.Now().Before(end) {
 			start := time.Now()
 			s.Broadcast("big", payload)
-			if d := time.Since(start); d >= writeWait/2 {
-				blocked.Store(int64(d))
+			if took := time.Since(start); took >= writeWait/2 {
+				d.Store(int64(took))
 				return
 			}
 		}
 	}()
 
-	// While Broadcast fills the buffer and then blocks, keep taking the
-	// registry write lock. The UUID does not exist; only the wait matters.
-	var maxJoin time.Duration
+	// The UUID does not exist; only the wait for the registry lock matters.
 	giveUp := time.After(15 * time.Second)
-	for running := true; running; {
+	for {
 		select {
 		case <-done:
-			running = false
+			blocked = time.Duration(d.Load())
+			if blocked == 0 {
+				t.Fatal("Broadcast never blocked on the stuck peer; the send buffer did not fill")
+			}
+			return blocked, maxJoin
 		case <-giveUp:
 			t.Fatal("Broadcast to a stuck peer did not return within 15s")
 		case <-time.After(10 * time.Millisecond):
 			start := time.Now()
 			_ = s.JoinRoom("room", "no-such-uuid")
-			if d := time.Since(start); d > maxJoin {
-				maxJoin = d
+			if took := time.Since(start); took > maxJoin {
+				maxJoin = took
 			}
 		}
 	}
+}
 
-	d := time.Duration(blocked.Load())
-	t.Logf("blocked Broadcast returned after %v; max JoinRoom wait %v", d, maxJoin)
-	if d == 0 {
-		t.Fatal("Broadcast never blocked on the stuck peer; the send buffer did not fill")
-	}
-	if d > writeWait+2*time.Second {
-		t.Errorf("blocked Broadcast took %v, want about WriteWait (%v)", d, writeWait)
+// TestSlowPeer_EmitWriteDeadline checks the Emit write deadline on its own.
+// The keepalive is an hour apart, so nothing but Config.WriteWait can unblock
+// a write to a peer that never reads. A Broadcast that blocks on that peer
+// must give up after about WriteWait without holding the registry lock
+// (JoinRoom stays fast), and a later Emit to the peer must fail rather than
+// block.
+func TestSlowPeer_EmitWriteDeadline(t *testing.T) {
+	const writeWait = time.Second
+	s, _, ctx := slowPeer(t, &Config{WriteWait: writeWait, PingPeriod: time.Hour})
+
+	blocked, maxJoin := blockBroadcast(t, s, writeWait)
+	t.Logf("blocked Broadcast returned after %v; max JoinRoom wait %v", blocked, maxJoin)
+	if blocked > writeWait+2*time.Second {
+		t.Errorf("blocked Broadcast took %v, want about WriteWait (%v)", blocked, writeWait)
 	}
 	if maxJoin > 500*time.Millisecond {
 		t.Errorf("JoinRoom waited %v for the registry lock while Broadcast was blocked on a stuck peer", maxJoin)
 	}
-	// The timed-out write leaves the connection unusable; the keepalive must
-	// notice and close it so the read loop cleans it up.
+
+	start := time.Now()
+	err := ctx.Emit(&common.Message{EventName: "after-timeout"})
+	took := time.Since(start)
+	t.Logf("Emit to the stuck peer returned %v after %v", err, took)
+	if err == nil {
+		t.Error("Emit to a peer whose write timed out returned nil, want an error")
+	}
+	if took > writeWait+2*time.Second {
+		t.Errorf("Emit to the stuck peer took %v, want at most about WriteWait (%v)", took, writeWait)
+	}
+}
+
+// TestSlowPeer_KeepaliveClosesConnection checks that once a write to a stuck
+// peer has timed out, the keepalive (short PingPeriod here) closes the
+// connection so the read loop cleans it up.
+func TestSlowPeer_KeepaliveClosesConnection(t *testing.T) {
+	const writeWait = time.Second
+	s, h, _ := slowPeer(t, &Config{WriteWait: writeWait, PingPeriod: 50 * time.Millisecond})
+
+	blocked, maxJoin := blockBroadcast(t, s, writeWait)
+	t.Logf("blocked Broadcast returned after %v; max JoinRoom wait %v", blocked, maxJoin)
+	if maxJoin > 500*time.Millisecond {
+		t.Errorf("JoinRoom waited %v for the registry lock while Broadcast was blocked on a stuck peer", maxJoin)
+	}
 	select {
 	case <-h.closed:
 	case <-time.After(5 * time.Second):
