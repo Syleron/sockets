@@ -1,5 +1,75 @@
 # Changelog
 
+## v2.2.0
+
+Bug-fix release. Backward compatible with v2.1.0: no exported identifier or
+signature is added, removed or changed (`apidiff -m` against v2.1.0 reports
+no changes). No dependency changes.
+
+### Fixed
+
+- Serialise writes per connection (fixes concurrent write panics and corrupt
+  frames). gorilla/websocket allows one concurrent writer per connection, but
+  `Connection.Emit` (and so `Broadcast`, `BroadcastToRoom`,
+  `BroadcastToRoomChannel` and `Session.Emit`) and the keepalive ping wrote
+  from several goroutines without a lock. Under load (for example, one user
+  with several tabs in the same room) this caused recovered
+  `concurrent write to websocket connection` panics, corrupt or empty frames,
+  and dropped connections (`RSV1 set`, `bad opcode`). An unrecovered panic in
+  the ping goroutine could also crash the process.
+  - `Connection.Emit` takes a new per-connection write lock. It is separate
+    from the `Connection` RWMutex that guards `Data`, so `SetData` and
+    `GetData` never wait behind a write.
+  - The ping uses `WriteControl`, which gorilla/websocket documents as safe
+    alongside other writes, with a `Config.WriteWait` deadline.
+- `Session.Emit` and `Session.HasSession` no longer read the session's
+  connection map while `UpdateSession` or a disconnect changes it (a data
+  race that could end in `concurrent map iteration and map write`). They
+  copy or read it under the session lock, and the disconnect path now takes
+  that lock when it removes the connection.
+- `Sockets.CheckIfSessionExists` reads the session registry under the
+  registry read lock. Before, a call during `AddSession`, `DeleteSession` or
+  a disconnect could end the process with
+  `fatal error: concurrent map read and map write`, which `recover` cannot
+  catch.
+
+### Changed
+
+- `Config.WriteWait` (default 10s) is now applied. It was documented as "time
+  allowed to write a message to the peer" but was not used, so a write to a
+  peer that stopped reading could block forever. Each `Emit` and ping now has
+  that deadline. After a write times out, gorilla/websocket fails every later
+  write on the connection, so the next ping fails and the connection is
+  closed and cleaned up as for any other ping failure (within one
+  `PingPeriod`). `Emit` clears the deadline after each write, so it does not
+  leak into anything else. Zero still means the default; a negative
+  `WriteWait` disables the deadline (the v2.1.0 behaviour).
+- `Broadcast`, `BroadcastToRoom` and `BroadcastToRoomChannel` pick their
+  target connections under the registry read lock and write after releasing
+  it. A slow peer no longer holds the registry lock, which used to block
+  `JoinRoom`, `LeaveRoom`, session changes and disconnect cleanup for every
+  connection. A connection that disconnects between selection and write gets
+  a failed write, which is logged at Warn as before.
+- `Session.Emit` writes to the session's connections after releasing the
+  session lock.
+
+Lock order: `Sockets` registry lock, then a `Session` lock; the per-connection
+write lock is never held while either is taken.
+
+### Notes for consumers
+
+- Write to a connection only through `Emit` (or the broadcast and session
+  helpers). Writing to the exported `Connection.Conn` directly bypasses the
+  write lock and can still panic with `concurrent write to websocket
+  connection`.
+- `Session.HasSession`, `Session.Emit` and the disconnect path now take the
+  `Session`'s embedded mutex, which is not re-entrant. Do not call them, or
+  any `Sockets` method, while holding `ctx.Session.Lock()`.
+- Broadcasts still write to their targets one after another on the caller's
+  goroutine, so a peer that has stopped reading delays that call (and the
+  targets after it) by up to `WriteWait` once. Later writes to it fail at
+  once until it is closed.
+
 ## v2.1.0
 
 Maintenance and security release. Backward compatible with v2.0.0: no
