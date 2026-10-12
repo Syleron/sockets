@@ -5,6 +5,20 @@
 Feature release. Backward compatible with v2.2.0: additions only (`apidiff -m`
 against v2.2.0 reports only compatible changes). No dependency changes.
 
+> **Behaviour change: `Emit` drops while there is no live connection.**
+> When the client has no live connection, `Emit` drops the message and logs
+> it at Warn.
+> - During a `Reconnect` (the old connection is being torn down) and after a
+>   failed `Reconnect`, until a later one succeeds, the message is dropped
+>   without calling `NewClientError`.
+> - After the server drops the connection, until `Reconnect` is called, the
+>   failed write is also passed to `NewClientError`, as in v2.2.0.
+>
+> `Emit` never blocks waiting for a connection, and nothing is queued or
+> replayed. Callers that need delivery across a reconnect must re-send after
+> `NewConnection` fires. (lb_sidecar's hand-patched v1 client blocked `Emit`
+> until a reconnect succeeded instead.)
+
 ### Added
 
 - `Client.Reconnect() error`: closes the current connection and dials again

@@ -796,3 +796,34 @@ func TestEmitAfterServerDropReportsError(t *testing.T) {
 	waitClosed(t, done, "Emit on a dropped connection to return")
 	h.check(t, 1, 1, 1)
 }
+
+// TestEmitAfterFailedReconnectDrops checks the documented v2.3.0 behaviour:
+// after a failed Reconnect, Emit returns without blocking and drops the
+// message without calling NewClientError (the connection was replaced).
+func TestEmitAfterFailedReconnectDrops(t *testing.T) {
+	ts := newTestServer(t, false)
+	h := &recHandler{}
+	c := dialTest(t, ts, nil, h)
+	sc := ts.nextConn(t)
+	old := curConn(c)
+
+	if err := sc.closeWith(websocket.CloseGoingAway); err != nil {
+		t.Fatalf("server close: %v", err)
+	}
+	waitClosed(t, old.readerDone, "the reader to exit")
+	h.check(t, 1, 1, 0)
+
+	ts.srv.Close() // from now on, dials fail
+	err := c.Reconnect()
+	if err == nil || errors.Is(err, ErrClosed) {
+		t.Fatalf("Reconnect = %v, want a dial error", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		guard(t, "Emit", func() { c.Emit(&common.Message{EventName: "dropped"}) })
+	}()
+	waitClosed(t, done, "Emit after a failed Reconnect to return")
+	h.check(t, 1, 1, 0)
+}
