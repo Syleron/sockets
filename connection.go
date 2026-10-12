@@ -39,6 +39,18 @@ type Connection struct {
 	RealIP string
 	sync.RWMutex
 	*Session
+
+	// writeMu serialises data writes to Conn. gorilla/websocket allows one
+	// concurrent writer per connection; Emit is called from event handlers,
+	// broadcasts and Session.Emit on different goroutines. It is separate from
+	// the embedded RWMutex (which guards Data) so SetData/GetData never wait
+	// behind a slow write. Lock ordering: never acquire the Sockets registry
+	// lock or a Session lock while holding writeMu.
+	writeMu sync.Mutex
+	// writeWait bounds each write (Config.WriteWait). Zero or negative means
+	// no deadline. Set before the connection is shared and read-only
+	// afterwards.
+	writeWait time.Duration
 }
 
 func NewConnection() *Connection {
@@ -60,13 +72,29 @@ func NewConnection() *Connection {
 	}
 }
 
+// Emit writes msg to the connection as a JSON text message. It is safe to call
+// from multiple goroutines: writes to the same connection are serialised.
+// When Config.WriteWait is positive (the default is 10s), a write that does
+// not complete in time fails, and gorilla/websocket fails every later write
+// on the connection, so the keepalive closes it.
+//
+// Write to the connection only through Emit: writing to Conn directly
+// bypasses the serialisation.
 func (c *Connection) Emit(msg interface{}) error {
-	// We are sending this to a single user
-	// but on multiple connections.
-	if err := c.Conn.WriteJSON(msg); err != nil {
-		return err
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
+	// SetWriteDeadline is a write method in gorilla/websocket, so it must be
+	// called under writeMu too. It only records the deadline for the next
+	// frames (no syscall), so it is reset afterwards to leave no stale
+	// deadline behind for anything else that writes to Conn.
+	if c.writeWait > 0 {
+		if err := c.Conn.SetWriteDeadline(time.Now().Add(c.writeWait)); err != nil {
+			return err
+		}
+		defer func() { _ = c.Conn.SetWriteDeadline(time.Time{}) }()
 	}
-	return nil
+	return c.Conn.WriteJSON(msg)
 }
 
 func (c *Connection) SetData(key string, value interface{}) {
@@ -89,7 +117,12 @@ func (c *Connection) addSession(session *Session) {
 	c.Session = session
 }
 
-func (c *Connection) pongHandler(pingPeriod time.Duration) {
+// pongHandler sends a ping every pingPeriod until a ping fails, then closes
+// the connection. Pings use WriteControl, which gorilla/websocket documents as
+// safe to call concurrently with the other write methods, so they do not take
+// writeMu and are not delayed behind a large or slow data write beyond
+// writeWait.
+func (c *Connection) pongHandler(pingPeriod, writeWait time.Duration) {
 	ticker := time.NewTicker(pingPeriod)
 
 	defer func() {
@@ -105,7 +138,11 @@ func (c *Connection) pongHandler(pingPeriod time.Duration) {
 	// Send a ping message depicted by our ticker
 	for range ticker.C {
 		// Periodically send a ping message
-		if err := c.Conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+		var deadline time.Time // zero: no deadline
+		if writeWait > 0 {
+			deadline = time.Now().Add(writeWait)
+		}
+		if err := c.Conn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
 			return
 		}
 	}

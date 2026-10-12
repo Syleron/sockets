@@ -34,14 +34,27 @@ type Session struct {
 }
 
 func (s *Session) HasSession() bool {
+	s.Lock()
+	defer s.Unlock()
 	return s.Username != "" && len(s.connections) > 0
 }
 
+// Emit writes msg to every connection in the session. The connection set is
+// copied under the session lock and the writes happen after it is released,
+// so a slow connection does not block session changes, and the connections
+// map is never read while another goroutine adds or removes a connection.
 func (s *Session) Emit(msg *common.Message) {
+	s.Lock()
+	conns := make([]*Connection, 0, len(s.connections))
 	for _, connection := range s.connections {
-		if err := connection.Emit(msg); err != nil {
-			continue
-		}
+		conns = append(conns, connection)
+	}
+	s.Unlock()
+
+	for _, connection := range conns {
+		// Best effort, as before: a failed write to one connection does not
+		// stop delivery to the others.
+		_ = connection.Emit(msg)
 	}
 }
 

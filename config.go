@@ -28,7 +28,10 @@ import (
 )
 
 type Config struct {
-	// Time allowed to write a message to the peer.
+	// Time allowed to write a message to the peer: each Emit and each ping
+	// must complete within it, or the write fails and the connection is
+	// closed. Zero means the default (10s); a negative value disables the
+	// deadline, so a write to a peer that stops reading can block forever.
 	WriteWait time.Duration
 	// Time allowed to read the next pong message from the peer.
 	PongWait time.Duration
