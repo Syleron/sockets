@@ -1,5 +1,72 @@
 # Changelog
 
+## v2.3.0
+
+Feature release. Backward compatible with v2.2.0: additions only (`apidiff -m`
+against v2.2.0 reports only compatible changes). No dependency changes.
+
+### Added
+
+- `Client.Reconnect() error`: closes the current connection and dials again
+  with the parameters given to `Dial`. `ConnectionClosed` is not called for
+  the replaced connection; `NewConnection` is called for the new one, and
+  `HandleEvent` handlers survive. It is safe to call from inside a
+  `DataHandler` callback (including `ConnectionClosed`, on the reader
+  goroutine, and `NewConnection`) or an event handler, and concurrently with
+  `Emit`, `Close` and other `Reconnect` calls, which are serialised.
+  Messages emitted while the old connection is torn down, or after a failed
+  `Reconnect` until a later one succeeds, are dropped and logged at Warn
+  (`Emit` never blocks waiting for a connection). A failed `Reconnect` does
+  not call `ConnectionClosed`; the caller owns the retry. If `Close` races
+  with the end of a `Reconnect`, `ConnectionClosed` may be delivered before
+  that connection's `NewConnection`.
+- `client.ErrClosed`: `Close` is final. After it, `Reconnect` and
+  `ReconnectWithSecure` return `ErrClosed`, including when `Close` is called
+  while the dial is in flight, so a retry loop can stop on
+  `errors.Is(err, client.ErrClosed)`. A connection lost by the server is not
+  a `Close`; `Reconnect` from `ConnectionClosed` still works.
+- `Client.ReconnectWithSecure(secure *Secure) error`: `Reconnect` with new
+  security settings (for example after a certificate change). They replace
+  the stored settings completely, including `Logger`, and are kept even if
+  the dial fails, so a later `Reconnect` retries with them. A nil `secure`
+  returns an error and leaves the stored settings unchanged (use `&Secure{}`
+  for plain ws), so a nil can never silently downgrade wss to ws.
+- `client.NewForTesting(emitChan) *Client`: a client that never dials; `Emit`
+  sends each message on `emitChan` so tests can observe it, or discards it
+  when `emitChan` is nil. `Reconnect` and `ReconnectWithSecure` return an
+  error on it.
+
+### Changed
+
+- The client no longer modifies `websocket.DefaultDialer`. It configures a
+  copy for each dial, so TLS and proxy settings no longer leak between dials
+  or clients (or into other users of `DefaultDialer` in the process).
+- `Dial` and `ReconnectWithSecure` store a copy of `*Secure` and a clone of
+  its `TLSConfig`. Changing either afterwards does not affect `Reconnect`.
+- `Emit` writes directly under a per-connection write lock. There is no
+  writer goroutine, so `Emit` returns after the write rather than after
+  handing the message off. A failed write is still logged at Warn and passed
+  to `NewClientError`, including after the connection has closed, but
+  `NewClientError` now runs on the `Emit` caller's goroutine (previously the
+  writer goroutine): the handler must not take a lock the `Emit` caller
+  holds. There is still no write deadline on the client, as in v2.2.0.
+- Event handlers run one at a time across connections: after a `Reconnect`,
+  the new connection's events wait until a handler still running for the
+  replaced connection returns.
+
+### Fixed
+
+- `ConnectionClosed` fires at most once per connection. A second `Close`, or
+  a `Close` after the server dropped the connection, no longer calls it
+  again, nor logs a spurious Warn. A reader that saw its connection drop
+  skips `NewClientError` and `ConnectionClosed` once a `Reconnect` has
+  replaced the connection.
+- Events read on a connection that has been closed or replaced are not
+  dispatched to `HandleEvent` handlers.
+- `Status` is written under a lock. `IsConnected` is the race-free way to
+  read it; reading the exported field directly while the client runs is a
+  data race.
+
 ## v2.2.0
 
 Bug-fix release. Backward compatible with v2.1.0: no exported identifier or
