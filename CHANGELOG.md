@@ -26,14 +26,20 @@ against v2.2.0 reports only compatible changes). No dependency changes.
   the replaced connection; `NewConnection` is called for the new one, and
   `HandleEvent` handlers survive. It is safe to call from inside a
   `DataHandler` callback (including `ConnectionClosed`, on the reader
-  goroutine, and `NewConnection`) or an event handler, and concurrently with
-  `Emit`, `Close` and other `Reconnect` calls, which are serialised.
+  goroutine, and `NewConnection`) or an event handler. It is safe to call
+  concurrently with `Emit`, `Close` and other `Reconnect` calls; `Reconnect`
+  and `ReconnectWithSecure` calls are serialised with each other (not with
+  `Close` or `Emit`).
   Messages emitted while the old connection is torn down, or after a failed
   `Reconnect` until a later one succeeds, are dropped and logged at Warn
   (`Emit` never blocks waiting for a connection). A failed `Reconnect` does
-  not call `ConnectionClosed`; the caller owns the retry. If `Close` races
-  with the end of a `Reconnect`, `ConnectionClosed` may be delivered before
-  that connection's `NewConnection`.
+  not call `ConnectionClosed`; the caller owns the retry, and a `Close` after
+  a failed or in-flight `Reconnect` does not call `ConnectionClosed` either
+  (there is no live connection to close). If `Close` races with the end of a
+  `Reconnect`, `ConnectionClosed` may be delivered before that connection's
+  `NewConnection`. An event handler that calls `Reconnect` and then waits for
+  an event from the new connection deadlocks, because event handlers run one
+  at a time.
 - `client.ErrClosed`: `Close` is final. After it, `Reconnect` and
   `ReconnectWithSecure` return `ErrClosed`, including when `Close` is called
   while the dial is in flight, so a retry loop can stop on
@@ -41,10 +47,12 @@ against v2.2.0 reports only compatible changes). No dependency changes.
   a `Close`; `Reconnect` from `ConnectionClosed` still works.
 - `Client.ReconnectWithSecure(secure *Secure) error`: `Reconnect` with new
   security settings (for example after a certificate change). They replace
-  the stored settings completely, including `Logger`, and are kept even if
-  the dial fails, so a later `Reconnect` retries with them. A nil `secure`
-  returns an error and leaves the stored settings unchanged (use `&Secure{}`
-  for plain ws), so a nil can never silently downgrade wss to ws.
+  the stored settings completely, including `Logger`. Settings that are
+  invalid before any dial (a nil `secure`, an unparsable `ProxyURL`) are
+  rejected up front: the error is returned and the current connection and
+  stored settings are left untouched, so a nil can never silently downgrade
+  wss to ws (use `&Secure{}` for plain ws). Otherwise the settings are kept
+  even if the dial fails, so a later `Reconnect` retries with them.
 - `client.NewForTesting(emitChan) *Client`: a client that never dials; `Emit`
   sends each message on `emitChan` so tests can observe it, or discards it
   when `emitChan` is nil. `Reconnect` and `ReconnectWithSecure` return an
@@ -73,8 +81,12 @@ against v2.2.0 reports only compatible changes). No dependency changes.
 - `ConnectionClosed` fires at most once per connection. A second `Close`, or
   a `Close` after the server dropped the connection, no longer calls it
   again, nor logs a spurious Warn. A reader that saw its connection drop
-  skips `NewClientError` and `ConnectionClosed` once a `Reconnect` has
-  replaced the connection.
+  skips `NewClientError` and `ConnectionClosed` if a `Reconnect` has already
+  replaced the connection when it checks. This is best-effort against a
+  `Reconnect` on another goroutine: the check and the callback are not
+  atomic, so a `Reconnect` that completes in between can still see one late
+  callback for the replaced connection. A `Reconnect` from inside the
+  callbacks (the usual retry pattern) is not affected.
 - Events read on a connection that has been closed or replaced are not
   dispatched to `HandleEvent` handlers.
 - `Status` is written under a lock. `IsConnected` is the race-free way to

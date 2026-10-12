@@ -83,7 +83,8 @@ type conn struct {
 	writeMu sync.Mutex // gorilla/websocket allows one concurrent writer
 	// closed is set when the connection is closed by Close or by a read
 	// failure, superseded when Reconnect replaces it. Either way its reader
-	// fires no more callbacks.
+	// dispatches no more events, and a reader that finds either flag set
+	// when its read fails exits without calling the DataHandler.
 	closed     bool
 	superseded bool
 	readerDone chan struct{} // closed when the reader goroutine returns
@@ -101,8 +102,11 @@ type Secure struct {
 	ProxyPass string
 	// Logger receives the client's log records. Optional: when nil (or when
 	// Dial is given a nil *Secure), the client logs to slog.Default(),
-	// resolved at log time. Read and write failures are logged at Warn and
-	// are also passed to DataHandler.NewClientError.
+	// resolved at log time. Read and write failures on the current
+	// connection are logged at Warn and also passed to
+	// DataHandler.NewClientError. On a connection that Reconnect has
+	// replaced, write failures are only logged and read failures are
+	// dropped silently (best-effort; see Reconnect).
 	Logger *slog.Logger
 }
 
@@ -218,10 +222,13 @@ func configureDialer(dialer *websocket.Dialer, secure *Secure) error {
 // ConnectionClosed is not called for the replaced connection; NewConnection
 // is called for the new one. Handlers registered with HandleEvent survive.
 // Reconnect is safe to call from inside a DataHandler callback (including
-// ConnectionClosed and NewConnection) or an event handler, and concurrently
-// with Emit, Close and other Reconnect calls, which are serialised. Messages
-// emitted while the old connection is torn down are dropped and logged, not
-// delivered. Event handlers never run for two connections at once.
+// ConnectionClosed and NewConnection) or an event handler. It is safe to
+// call concurrently with Emit, Close and other Reconnect calls; Reconnect and
+// ReconnectWithSecure calls are serialised with each other, but not with
+// Close or Emit. Messages emitted while the old connection is torn down are
+// dropped and logged, not delivered. Event handlers never run for two
+// connections at once, so an event handler that calls Reconnect and then
+// waits for an event from the new connection deadlocks.
 //
 // Close is final: after it, Reconnect returns ErrClosed. If Close is called
 // while the dial is in flight, Reconnect closes the new connection and
@@ -232,10 +239,20 @@ func configureDialer(dialer *websocket.Dialer, secure *Secure) error {
 // A failed Reconnect does not call ConnectionClosed (the old connection was
 // replaced deliberately), so the caller owns the retry. Until a later
 // Reconnect succeeds the client stays disconnected and Emit drops messages
-// (logged at Warn).
+// (logged at Warn). A Close in that state, or while a Reconnect is dialling,
+// does not call ConnectionClosed either: there is no live connection to
+// close.
 //
-// If Close races with the end of a successful Reconnect, ConnectionClosed may
-// be delivered before that connection's NewConnection.
+// Suppression of the replaced connection's callbacks is best-effort when
+// Reconnect runs on another goroutine. Its reader checks that the
+// connection is still current and then calls NewClientError or
+// ConnectionClosed without holding a lock, so a Reconnect that completes
+// between the check and the call can still see one late callback for the
+// replaced connection. A Reconnect from inside those callbacks is not
+// affected. Likewise, if Close races with the end of a successful Reconnect,
+// ConnectionClosed may be delivered before that connection's NewConnection,
+// and when two Reconnects run back to back on different goroutines their
+// NewConnection calls may arrive in either order.
 func (c *Client) Reconnect() error {
 	c.reconnectMu.Lock()
 	cn, err := c.reconnectLocked()
@@ -308,14 +325,24 @@ func (c *Client) reconnectLocked() (*conn, error) {
 // ReconnectWithSecure is Reconnect with new security settings (for example
 // after a certificate change). secure and its TLSConfig are copied and replace
 // the stored settings completely, including Logger. secure must not be nil:
-// use &Secure{} for plain ws. The settings are stored even if the dial fails,
-// so a later Reconnect retries with them. As with Reconnect, a failed dial
-// does not call ConnectionClosed; the caller owns the retry.
+// use &Secure{} for plain ws.
+//
+// Settings that are invalid before any dial (a nil secure, an unparsable
+// ProxyURL) are rejected up front: the error is returned and the current
+// connection and stored settings are left untouched. Otherwise the settings
+// are stored even if the dial fails, so a later Reconnect retries with them.
+// As with Reconnect, a failed dial does not call ConnectionClosed; the caller
+// owns the retry.
 func (c *Client) ReconnectWithSecure(secure *Secure) error {
 	if secure == nil {
 		return errNilSecure
 	}
 	s := copySecure(secure)
+	// Validate on a scratch dialer before anything is stored or closed.
+	var scratch websocket.Dialer
+	if err := configureDialer(&scratch, s); err != nil {
+		return err
+	}
 
 	c.reconnectMu.Lock()
 	c.mu.Lock()
@@ -358,10 +385,10 @@ func (c *Client) handleIncoming(cn *conn) {
 			}
 			c.mu.Unlock()
 
-			// Superseded or closed connections exit silently.
 			if closeErr := cn.ws.Close(); closeErr != nil && report {
 				c.log().Warn("failed to close websocket connection", slog.Any("error", closeErr))
 			}
+			// Superseded or closed connections exit silently.
 			if !report {
 				return
 			}
@@ -438,7 +465,7 @@ func (c *Client) Emit(msg *common.Message) {
 	superseded := cn.superseded
 	c.mu.Unlock()
 	if superseded {
-		c.log().Warn("dropping message: connection replaced by reconnect", slog.Any("error", err))
+		c.log().Warn("dropping message: not connected (connection replaced by Reconnect)", slog.Any("error", err))
 		return
 	}
 	c.log().Warn("failed to send message", slog.Any("error", err))
@@ -447,8 +474,11 @@ func (c *Client) Emit(msg *common.Message) {
 
 // Close closes the connection and calls DataHandler.ConnectionClosed, once
 // per connection: closing an already closed or replaced connection does not
-// call it again. Close is final: it aborts an in-flight Reconnect, and later
-// calls to Reconnect and ReconnectWithSecure return ErrClosed.
+// call it again. In particular, Close after a failed Reconnect, or while a
+// Reconnect is dialling, does not call ConnectionClosed. Close is final: it
+// aborts an in-flight Reconnect, and later calls to Reconnect and
+// ReconnectWithSecure return ErrClosed. ConnectionClosed runs synchronously
+// on the goroutine that calls Close.
 func (c *Client) Close() {
 	c.mu.Lock()
 	c.gen++

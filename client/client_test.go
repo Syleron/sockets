@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -434,8 +435,13 @@ func TestReconnectFromNewConnection(t *testing.T) {
 	case <-time.After(waitFor):
 		t.Fatal("Reconnect with a nested Reconnect in NewConnection did not return (deadlock?)")
 	}
-	if err := <-nested; err != nil {
-		t.Fatalf("Reconnect from NewConnection: %v", err)
+	select {
+	case err := <-nested:
+		if err != nil {
+			t.Fatalf("Reconnect from NewConnection: %v", err)
+		}
+	case <-time.After(waitFor):
+		t.Fatal("the nested Reconnect in NewConnection did not run")
 	}
 	h.check(t, 3, 0, 0)
 	c.Emit(&common.Message{EventName: "after"})
@@ -458,8 +464,13 @@ func TestReconnectFromNewClientError(t *testing.T) {
 		t.Fatalf("server close: %v", err)
 	}
 	waitClosed(t, old.readerDone, "the old connection's reader to exit")
-	if err := <-reconnected; err != nil {
-		t.Fatalf("Reconnect from NewClientError: %v", err)
+	select {
+	case err := <-reconnected:
+		if err != nil {
+			t.Fatalf("Reconnect from NewClientError: %v", err)
+		}
+	case <-time.After(waitFor):
+		t.Fatal("Reconnect from NewClientError did not run")
 	}
 	h.check(t, 2, 0, 1)
 	c.Emit(&common.Message{EventName: "after"})
@@ -678,6 +689,9 @@ func TestCloseDuringReconnectDial(t *testing.T) {
 	ts := newTestServer(t, false)
 	reached := make(chan struct{})
 	gate := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(gate) }) }
+	t.Cleanup(release) // never leave the server handler blocked
 	ts.beforeUpgrade = func(seq int64) {
 		if seq == 2 {
 			close(reached)
@@ -692,7 +706,7 @@ func TestCloseDuringReconnectDial(t *testing.T) {
 	go func() { result <- c.Reconnect() }()
 	waitClosed(t, reached, "the reconnect request at the server")
 	c.Close()
-	close(gate)
+	release()
 
 	select {
 	case err := <-result:
@@ -826,4 +840,120 @@ func TestEmitAfterFailedReconnectDrops(t *testing.T) {
 	}()
 	waitClosed(t, done, "Emit after a failed Reconnect to return")
 	h.check(t, 1, 1, 0)
+}
+
+// TestReconnectWithSecureInvalidProxyKeepsConnection checks that settings
+// rejected before any dial (here an unparsable ProxyURL) leave the healthy
+// connection and the stored settings alone.
+func TestReconnectWithSecureInvalidProxyKeepsConnection(t *testing.T) {
+	ts := newTestServer(t, false)
+	h := &recHandler{}
+	c := dialTest(t, ts, nil, h)
+	sc := ts.nextConn(t)
+
+	err := c.ReconnectWithSecure(&Secure{ProxyURL: "://bad", Logger: discardLogger()})
+	if err == nil {
+		t.Fatal("ReconnectWithSecure(invalid ProxyURL) = nil, want an error")
+	}
+	if !c.IsConnected() {
+		t.Error("ReconnectWithSecure(invalid ProxyURL) dropped the connection")
+	}
+	select {
+	case <-sc.done:
+		t.Error("the server saw the healthy connection closed")
+	default:
+	}
+	c.Emit(&common.Message{EventName: "still-there"})
+	ts.expectMsg(t, "still-there", 1)
+	h.check(t, 1, 0, 0)
+
+	// The stored settings are unchanged, so Reconnect still works.
+	if err := c.Reconnect(); err != nil {
+		t.Fatalf("Reconnect after a rejected ReconnectWithSecure: %v", err)
+	}
+	c.Emit(&common.Message{EventName: "after"})
+	ts.expectMsg(t, "after", 2)
+	h.check(t, 2, 0, 0)
+}
+
+// inDispatch counts the goroutines inside Client.dispatch.
+func inDispatch() int {
+	buf := make([]byte, 1<<20)
+	n := runtime.Stack(buf, true)
+	return strings.Count(string(buf[:n]), "client.(*Client).dispatch(")
+}
+
+// waitDispatchCount waits until ok(inDispatch()) holds.
+func waitDispatchCount(t *testing.T, what string, ok func(int) bool) {
+	t.Helper()
+	deadline := time.Now().Add(waitFor)
+	for !ok(inDispatch()) {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestStaleEventNotDispatched checks that an event the reader has already
+// read is not dispatched once its connection has been replaced or closed.
+// The test holds dispatchMu so the reader waits in dispatch with the event
+// while the connection is replaced or closed.
+func TestStaleEventNotDispatched(t *testing.T) {
+	for _, replace := range []bool{true, false} {
+		name := "closed"
+		if replace {
+			name = "replaced"
+		}
+		t.Run(name, func(t *testing.T) {
+			ts := newTestServer(t, false)
+			var ran atomic.Int64
+			got := make(chan struct{}, 2)
+			handleEvent(t, "stale", func(*common.Message) {
+				ran.Add(1)
+				got <- struct{}{}
+			})
+			h := &recHandler{}
+			c := dialTest(t, ts, nil, h)
+			sc := ts.nextConn(t)
+			old := curConn(c)
+
+			c.dispatchMu.Lock()
+			var unlockOnce sync.Once
+			unlock := func() { unlockOnce.Do(c.dispatchMu.Unlock) }
+			t.Cleanup(unlock)
+
+			// Goroutines left over from earlier tests must not be mistaken
+			// for this reader: start from none in dispatch.
+			waitDispatchCount(t, "earlier dispatches to finish", func(n int) bool { return n == 0 })
+			if err := sc.ws.WriteJSON(&common.Message{EventName: "stale"}); err != nil {
+				t.Fatalf("server write: %v", err)
+			}
+			// The reader has read the event and waits for dispatchMu.
+			waitDispatchCount(t, "the reader to enter dispatch", func(n int) bool { return n > 0 })
+			if replace {
+				if err := c.Reconnect(); err != nil {
+					t.Fatalf("Reconnect: %v", err)
+				}
+			} else {
+				c.Close()
+			}
+			unlock()
+			waitClosed(t, old.readerDone, "the old connection's reader to exit")
+			if n := ran.Load(); n != 0 {
+				t.Fatalf("event read on the %s connection was dispatched %d times, want 0", name, n)
+			}
+
+			if !replace {
+				h.check(t, 1, 1, 0)
+				return
+			}
+			// The new connection still dispatches.
+			if err := ts.nextConn(t).ws.WriteJSON(&common.Message{EventName: "stale"}); err != nil {
+				t.Fatalf("server write: %v", err)
+			}
+			waitClosed(t, got, "the event on the new connection")
+			h.check(t, 2, 0, 0)
+		})
+	}
 }
