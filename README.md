@@ -108,6 +108,52 @@ reason as an error (`errors.Is` with `common.ErrEmptyKey`,
         fmt.Println("> Recieved WSKT 'pong'")
     }
 
+### Reconnecting
+
+`Reconnect` dials again with the settings given to `Dial`; `ReconnectWithSecure`
+replaces them first (for example after a certificate change). `HandleEvent`
+handlers survive, `NewConnection` is called for the new connection and
+`ConnectionClosed` is not called for the replaced one. `Reconnect` may be
+called from inside a `DataHandler` callback, so a handler can retry when the
+server drops the connection:
+
+    type SocketHandler struct {
+        client atomic.Pointer[sktsClient.Client] // set after Dial
+    }
+
+    func (h *SocketHandler) ConnectionClosed() {
+        c := h.client.Load()
+        if c == nil {
+            return // dropped before Store: check IsConnected after storing
+        }
+        // Try at once: Close() calls ConnectionClosed synchronously, and
+        // Reconnect then returns ErrClosed without waiting for a backoff.
+        backoff := time.Second
+        for {
+            err := c.Reconnect()
+            if err == nil || errors.Is(err, sktsClient.ErrClosed) {
+                return
+            }
+            time.Sleep(backoff)
+            backoff = min(2*backoff, time.Minute)
+        }
+    }
+
+    // Later, with new TLS settings:
+    err := client.ReconnectWithSecure(&sktsClient.Secure{EnableTLS: true, TLSConfig: newTLS})
+
+`ConnectionClosed` fires only when the connection is lost or `Close` is
+called, at most once per connection; a failed `Reconnect` does not call it
+(nor does a later `Close`, as there is no live connection), so the caller
+owns the retry. `Close` is final: afterwards (or if it is
+called while `Reconnect` is dialling) `Reconnect` returns `ErrClosed`, which
+ends the loop above. `ReconnectWithSecure(nil)` is an error; pass
+`&sktsClient.Secure{}` for plain ws. Use `IsConnected` rather than reading
+`Status` directly.
+
+For unit tests, `sktsClient.NewForTesting(ch)` returns a client that never
+dials; `Emit` sends each message on `ch`.
+
 ### Simple server usage
 
     package main
